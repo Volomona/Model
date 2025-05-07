@@ -76,27 +76,36 @@ def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100)
         progress.progress((i + 1) / repeats)
     return np.array(runs)
 
-def simulate_hybrid(N0: float, r: float, K: float, T: int, tau: int, sigma: float = 0.1, repeats: int = 100) -> np.ndarray:
+# ==== Hybrid model ==== #
+def simulate_hybrid_model(N0: float, r: float, K: float, T: int, tau: int, sigma: float = 0.1, repeats: int = 100) -> np.ndarray:
     """
-    Hybrid model: Combines Logistic, Ricker, and Delay models with stochastic elements.
+    Hybrid model: a combination of logistic growth and the Ricker model, with delay and stochasticity.
     """
-    # Logistic Growth Phase
+    # Логистический рост
     logistic_traj = simulate_logistic(N0, r, K, T)
     
-    # Ricker Model Phase
+    # Модель Рикера
     ricker_traj = simulate_ricker(N0, r, K, T)
     
-    # Delay Model Phase
-    delay_traj = simulate_delay(N0, r, K, T, tau)
+    # Стохастичность (добавление шума)
+    runs = []
+    for i in range(repeats):
+        # Сначала логистический рост с шумом
+        noise_logistic = np.random.normal(0, sigma, size=logistic_traj.shape)
+        noisy_logistic = logistic_traj + noise_logistic
+        
+        # Затем модель Рикера с шумом
+        noise_ricker = np.random.normal(0, sigma, size=ricker_traj.shape)
+        noisy_ricker = ricker_traj + noise_ricker
+        
+        runs.append(noisy_logistic + noisy_ricker)  # Суммируем два траектории для гибридной модели
+
+    hybrid_traj = np.mean(np.array(runs), axis=0)
     
-    # Stochastic Noise Phase (for Hybrid)
-    base_sim = simulate_logistic if np.random.rand() > 0.5 else simulate_ricker
-    stochastic_traj = simulate_stochastic(base_sim, N0, r, K, T, sigma=sigma, repeats=repeats)
+    # Применение задержки
+    hybrid_traj_with_delay = simulate_delay(hybrid_traj[0], r, K, T, tau)
     
-    # Combine the results into a hybrid trajectory (for example, we average the models)
-    hybrid_traj = (logistic_traj + ricker_traj + delay_traj + stochastic_traj.mean(axis=0)) / 4
-    
-    return hybrid_traj
+    return hybrid_traj_with_delay
 
 # ==== Streamlit UI ==== #
 st.set_page_config(page_title="Population Dynamics Simulator", layout="wide")
@@ -109,51 +118,56 @@ model_info = {
     "Leslie Matrix": "Age-structured model via Leslie matrix.",
     "Delay Model": "Population depends on past state (delay tau).",
     "Stochastic": "Adds Gaussian noise to multiple runs.",
-    "Hybrid Model": "Combines Logistic, Ricker, Delay, and Stochastic models."
+    "Hybrid model": "A combined model using logistic growth and the Ricker model with delay and stochasticity."
 }
-st.sidebar.info("Select a model and set parameters below.")
+st.sidebar.info("Выберите модель и установите параметры ниже.")
 
 # Sidebar: model selection
-st.sidebar.markdown("### Model Selection")
-model = st.sidebar.selectbox("Choose model:", list(model_info.keys()))
+st.sidebar.markdown("### Выбор модели")
+model = st.sidebar.selectbox("Выберите модель:", list(model_info.keys()))
 st.sidebar.caption(model_info[model])
 
 # Sidebar: common parameters
-st.sidebar.markdown("### Common Parameters")
-T = st.sidebar.number_input("Time steps (T)", min_value=1, max_value=500, value=100)
+st.sidebar.markdown("### Общие параметры")
+T = st.sidebar.number_input("Шаги времени (T)", min_value=1, max_value=500, value=100)
 if T > 500:
-    st.sidebar.error("T is too large; please select ≤500")
+    st.sidebar.error("T слишком большое; выберите ≤500")
 
 common = {}
 if model != "Leslie Matrix":
-    common['N0'] = st.sidebar.number_input("Initial population N0", min_value=0.0, value=10.0)
-    common['r'] = st.sidebar.number_input("Growth rate r", min_value=0.0, value=0.1)
-    common['K'] = st.sidebar.number_input("Carrying capacity K", min_value=1.0, value=100.0)
+    common['N0'] = st.sidebar.number_input("Начальная популяция N0", min_value=0.0, value=10.0)
+    common['r'] = st.sidebar.number_input("Темп роста r", min_value=0.0, value=0.1)
+    common['K'] = st.sidebar.number_input("Емкость K", min_value=1.0, value=100.0)
 
 # Sidebar: model-specific parameters
 if model == "Delay Model":
-    tau = st.sidebar.slider("Delay (tau)", min_value=1, max_value=10, value=1)
+    tau = st.sidebar.slider("Задержка (tau)", min_value=1, max_value=10, value=1)
 
 elif model == "Leslie Matrix":
-    n = st.sidebar.number_input("Number of age classes", min_value=2, max_value=10, value=3)
-    with st.sidebar.expander("Fertility coefficients (f_i)"):
+    n = st.sidebar.number_input("Число возрастных классов", min_value=2, max_value=10, value=3)
+    with st.sidebar.expander("Коэффициенты рождаемости (f_i)"):
         fertility = [st.number_input(f"f_{i}", min_value=0.0, value=0.5) for i in range(n)]
-    with st.sidebar.expander("Survival probabilities (s_i)"):
+    with st.sidebar.expander("Вероятности выживания (s_i)"):
         survival = [st.number_input(f"s_{i}", min_value=0.0, max_value=1.0, value=0.8) for i in range(n-1)]
-    with st.sidebar.expander("Initial population per age class"):
+    with st.sidebar.expander("Начальная популяция по возрастным классам"):
         N0_vec = [st.number_input(f"N0_{i}", min_value=0.0, value=10.0) for i in range(n)]
     # Validate Leslie params
     if any(f < 0 for f in fertility):
-        st.sidebar.error("All fertility coefficients must be ≥ 0")
+        st.sidebar.error("Все коэффициенты рождаемости должны быть ≥ 0")
     if any(not (0 <= s <= 1) for s in survival):
-        st.sidebar.error("All survival probabilities must be in [0,1]")
+        st.sidebar.error("Все вероятности выживания должны быть в пределах [0,1]")
 
 elif model == "Stochastic":
-    repeats = st.sidebar.number_input("Number of repeats", min_value=1, max_value=200, value=100)
+    repeats = st.sidebar.number_input("Number of repetitions", min_value=1, max_value=200, value=100)
     if repeats > 200:
-        st.sidebar.error("Repeats too large; max 200")
-    sigma = st.sidebar.slider("Noise sigma", min_value=0.0, max_value=1.0, value=0.1)
-    base_model = st.sidebar.selectbox("Base model:", ["Logistic", "Ricker"])
+        st.sidebar.error("Too many repetitions; макс. 200")
+    sigma = st.sidebar.slider("Шум (sigma)", min_value=0.0, max_value=1.0, value=0.1)
+    base_model = st.sidebar.selectbox("Основная модель:", ["Logistic", "Ricker"])
+
+elif model == "Гибридная модель":
+    common['tau'] = st.sidebar.slider("Задержка (tau)", min_value=1, max_value=10, value=1)
+    common['sigma'] = st.sidebar.slider("Шум (sigma)", min_value=0.0, max_value=1.0, value=0.1)
+    repeats = st.sidebar.number_input("Число повторов", min_value=1, max_value=200, value=100)
 
 # Utility: plot + export PNG
 def plot_and_export(data, title):
@@ -163,66 +177,66 @@ def plot_and_export(data, title):
     else:
         ax.plot(data)
     ax.set_title(title)
-    ax.set_xlabel('Time step')
-    ax.set_ylabel('Population size')
+    ax.set_xlabel('Шаг времени')
+    ax.set_ylabel('Размер популяции')
     st.pyplot(fig)
     buf = io.BytesIO()
     fig.savefig(buf, format='png')
     buf.seek(0)
-    st.download_button("Download plot PNG", data=buf, file_name=f"{title}.png", mime="image/png")
+    st.download_button("Скачать PNG", data=buf, file_name=f"{title}.png", mime="image/png")
 
 # Simulate
-if st.sidebar.button("Simulate"):
-    with st.spinner("Simulating..."):
+if st.sidebar.button("Симулировать"):
+    with st.spinner("Симуляция..."):
         if model == "Logistic Growth":
             traj = simulate_logistic(common['N0'], common['r'], common['K'], T)
-            st.subheader("Logistic Growth")
+            st.subheader("Logistical growth")
             st.line_chart(traj)
             plot_and_export(traj, 'logistic_growth')
 
         elif model == "Ricker Model":
             traj = simulate_ricker(common['N0'], common['r'], common['K'], T)
-            st.subheader("Ricker Model")
+            st.subheader("Модель Рикера")
             st.line_chart(traj)
             plot_and_export(traj, 'ricker_model')
 
         elif model == "Delay Model":
             traj = simulate_delay(common['N0'], common['r'], common['K'], T, tau)
-            st.subheader("Delay Model")
+            st.subheader("The delayed model")
             st.line_chart(traj)
             plot_and_export(traj, 'delay_model')
 
         elif model == "Leslie Matrix":
             history = simulate_leslie(N0_vec, fertility, survival, T)
-            df = pd.DataFrame(history, columns=[f"Age {i}" for i in range(n)])
-            st.subheader("Leslie Matrix")
+            df = pd.DataFrame(history, columns=[f"Возраст {i}" for i in range(n)])
+            st.subheader("Модель Лесли")
             st.line_chart(df)
             plot_and_export(df.values, 'leslie_matrix')
             # Dominant eigenvalue
             L = np.zeros((n, n)); L[0, :] = fertility
             for i in range(1, n): L[i, i-1] = survival[i-1]
             lambda_val = np.max(np.real(np.linalg.eigvals(L)))
-            st.write(f"Dominant eigenvalue λ = {lambda_val:.3f}")
-            st.download_button("Download data CSV", data=df.to_csv(index=False).encode('utf-8'),
+            st.write(f"Доминирующее собственное значение λ = {lambda_val:.3f}")
+            st.download_button("Скачать CSV данных", data=df.to_csv(index=False).encode('utf-8'),
                                file_name='leslie_matrix.csv')
 
         elif model == "Stochastic":
             base_sim = simulate_ricker if base_model == 'Ricker' else simulate_logistic
             results = simulate_stochastic(base_sim, common['N0'], common['r'], common['K'], T,
                                           sigma=sigma, repeats=repeats)
-            st.subheader("Stochastic Simulation")
+            st.subheader("Стохастическая симуляция")
             st.line_chart(pd.DataFrame(results.T))
-            st.write("Mean trajectory:")
+            st.write("Средняя траектория:")
             mean_traj = results.mean(axis=0)
             st.line_chart(mean_traj)
             plot_and_export(mean_traj, 'stochastic_mean')
 
-        elif model == "Hybrid Model":
-            hybrid_traj = simulate_hybrid(common['N0'], common['r'], common['K'], T, tau, sigma=sigma, repeats=repeats)
-            st.subheader("Hybrid Model")
-            st.line_chart(hybrid_traj)
-            plot_and_export(hybrid_traj, 'hybrid_model')
+        elif model == "Гибридная модель":
+            traj = simulate_hybrid_model(common['N0'], common['r'], common['K'], T, common['tau'], sigma=common['sigma'], repeats=repeats)
+            st.subheader("Гибридная модель")
+            st.line_chart(traj)
+            plot_and_export(traj, 'hybrid_model')
 
 # Footer
 st.sidebar.markdown("---")
-st.sidebar.info("Developed by Liya Akhmetova — v1.0")
+st.sidebar.info("Designed by Lшнф Akhmetova — v1.0")
