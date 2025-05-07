@@ -138,6 +138,7 @@ if st.sidebar.button("Simulate"):
             st.write(f"Dominant eigenvalue λ = {lambda_val:.3f}")
             st.download_button("Download data CSV", data=df.to_csv(index=False).encode('utf-8'),
                                file_name='leslie_matrix.csv')
+            plot_and_export(traj, 'leslie Matrix')
 
         elif model == "Stochastic":
             base = simulate_ricker if base_model == 'Ricker' else simulate_logistic
