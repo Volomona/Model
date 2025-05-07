@@ -197,4 +197,3 @@ if st.sidebar.button("Simulate"):
 # Footer
 st.sidebar.markdown("---")
 st.sidebar.info("Developed by Liya Akhmetova — v1.0")
-st.sidebar.write("Repo: https://github.com/yourrepo/population-simulator")
