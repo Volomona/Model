@@ -160,5 +160,4 @@ if st.sidebar.button("Simulate"):
 
 # Footer
 st.sidebar.markdown("---")
-st.sidebar.info("Developed by Your Name — v1.0")
-st.sidebar.write("Source code: https://github.com/yourrepo/population-simulator")
+st.sidebar.info("Developed by Liya Akhmetova — v1.0")
