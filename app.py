@@ -5,369 +5,223 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# Проверка наличия Streamlit
 try:
     import streamlit as st
 except ModuleNotFoundError:
-    sys.exit("Ошибка: Streamlit не установлен. Установите и запустите: `streamlit run app.py`")
+    sys.exit("Error: Streamlit is not available. Please install and run locally: `streamlit run app.py`.")
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ================== ФУНКЦИИ СИМУЛЯЦИИ С КЭШИРОВАНИЕМ ================== #
-
+# ==== Simulation functions ==== #
 @st.cache_data(max_entries=5)
 def simulate_logistic(N0: float, r: float, K: float, T: int) -> np.ndarray:
-    """Логистический рост с обработкой ошибок"""
-    Ns = np.zeros(T + 1)
-    Ns[0] = N0
+    """Discrete logistic growth with error handling"""
+    Ns = [N0]
     try:
-        for t in range(T):
-            next_N = Ns[t] + r * Ns[t] * (1 - Ns[t] / K)
+        for _ in range(T):
+            next_N = Ns[-1] + r * Ns[-1] * (1 - Ns[-1] / K)
             if next_N < 0 or np.isnan(next_N):
-                return Ns[:t+1]
-            Ns[t+1] = next_N
-        return Ns
+                return np.array(Ns)
+            Ns.append(next_N)
+        return np.array(Ns)
     except Exception as e:
-        logger.error(f"Ошибка логистической симуляции: {str(e)}")
+        logger.error(f"Logistic simulation failed: {str(e)}")
         return np.array([N0])
 
 @st.cache_data(max_entries=5)
 def simulate_ricker(N0: float, r: float, K: float, T: int) -> np.ndarray:
-    """Модель Рикера с обработкой ошибок"""
-    Ns = np.zeros(T + 1)
-    Ns[0] = N0
+    """Ricker model with error handling"""
+    Ns = [N0]
     try:
-        for t in range(T):
-            next_N = Ns[t] * np.exp(r * (1 - Ns[t] / K))
+        for _ in range(T):
+            next_N = Ns[-1] * np.exp(r * (1 - Ns[-1] / K))
             if next_N < 0 or np.isnan(next_N):
-                return Ns[:t+1]
-            Ns[t+1] = next_N
-        return Ns
+                return np.array(Ns)
+            Ns.append(next_N)
+        return np.array(Ns)
     except Exception as e:
-        logger.error(f"Ошибка модели Рикера: {str(e)}")
+        logger.error(f"Ricker simulation failed: {str(e)}")
         return np.array([N0])
 
 @st.cache_data(max_entries=5)
 def simulate_leslie(N0_vec: list, fertility: list, survival: list, T: int) -> np.ndarray:
-    """Матричная модель Лесли с валидацией"""
+    """Leslie matrix model with validation"""
     try:
         validate_leslie_params(survival, fertility)
-        
         n = len(N0_vec)
         N = np.array(N0_vec, dtype=float)
         history = [N.copy()]
-        
         L = np.zeros((n, n))
         L[0, :] = fertility
         for i in range(1, n):
             L[i, i-1] = survival[i-1]
-            
         for _ in range(T):
             N = L.dot(N)
-            N = np.clip(N, 0, None)  # Защита от отрицательных значений
+            N = np.clip(N, 0, None)  # Prevent negative values
             history.append(N.copy())
         return np.array(history)
     except Exception as e:
-        logger.error(f"Ошибка модели Лесли: {str(e)}")
+        logger.error(f"Leslie simulation failed: {str(e)}")
         return np.array([N0_vec])
 
 @st.cache_data(max_entries=5)
 def simulate_delay(N0: float, r: float, K: float, T: int, tau: int) -> np.ndarray:
-    """Модель с запаздыванием"""
+    """Delay model with error handling"""
     try:
-        Ns = np.zeros(T + tau + 1)
-        Ns[:tau+1] = N0
+        Ns = [N0] * (tau + 1)
         for t in range(tau, T + tau):
             next_N = Ns[t] * np.exp(r * (1 - Ns[t - tau] / K))
             if next_N < 0 or np.isnan(next_N):
-                return Ns[:t+1]
-            Ns[t+1] = next_N
-        return Ns[tau:]  # Возвращаем только релевантные значения
+                return np.array(Ns)
+            Ns.append(next_N)
+        return np.array(Ns)
     except Exception as e:
-        logger.error(f"Ошибка модели с запаздыванием: {str(e)}")
+        logger.error(f"Delay simulation failed: {str(e)}")
         return np.array([N0])
 
 def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100) -> np.ndarray:
-    """Стохастическая симуляция с векторизацией"""
+    """Stochastic simulation with progress bar"""
+    runs = []
+    progress = st.progress(0)
     try:
-        base_traj = base_sim(*args)
-        repeats = min(repeats, 500)  # Ограничение для защиты
-        
-        # Векторизованные вычисления
-        noise = np.random.normal(0, sigma, size=(repeats, len(base_traj)))
-        results = np.clip(base_traj + noise, a_min=0, a_max=None)
-        
-        return results
+        for i in range(repeats):
+            traj = base_sim(*args)
+            noise = np.random.normal(0, sigma, size=traj.shape)
+            runs.append(traj + noise)
+            progress.progress((i + 1) / repeats)
+        return np.array(runs)
     except Exception as e:
-        logger.error(f"Ошибка стохастической симуляции: {str(e)}")
+        logger.error(f"Stochastic simulation failed: {str(e)}")
         return np.array([base_sim(*args)])
 
-# ================== ВАЛИДАЦИЯ ================== #
-
+# ==== Validation ==== #
 def validate_leslie_params(survival: list, fertility: list):
-    """Проверка параметров модели Лесли"""
     if sum(survival) > 1.0:
-        raise ValueError("Сумма вероятностей выживания > 1.0")
+        raise ValueError("Sum of survival probabilities cannot exceed 1.0")
     if any(f < 0 for f in fertility):
-        raise ValueError("Коэффициенты фертильности < 0")
-    if any(s < 0 or s > 1 for s in survival):
-        raise ValueError("Вероятности выживания вне [0,1]")
+        raise ValueError("Fertility coefficients cannot be negative")
+    if any(not (0 <= s <= 1) for s in survival):
+        raise ValueError("Survival probabilities must be in [0,1]")
 
-# ================== ВИЗУАЛИЗАЦИЯ ================== #
-
-def plot_and_export(data, title, log_scale=False):
-    """Улучшенная визуализация с экспортом"""
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
+# ==== Original Plotting Function ==== #
+def plot_and_export(data, title):
+    """Original simple plotting without log scale"""
+    fig, ax = plt.subplots()
     if data.ndim == 1:
-        ax.plot(data, label='Основная траектория', linewidth=2)
+        ax.plot(data)
     else:
-        for i in range(min(data.shape[0], 100)):  # Ограничение числа линий
-            ax.plot(data[i], alpha=0.1, color='blue', 
-                   label='Стохастические траектории' if i == 0 else "")
-        ax.plot(np.nanmean(data, axis=0), color='red', 
-               linewidth=2, label='Среднее значение')
-    
-    ax.set_title(title, fontsize=14)
-    ax.set_xlabel('Временной шаг', fontsize=12)
-    ax.set_ylabel('Размер популяции', fontsize=12)
-    
-    if log_scale:
-        ax.set_yscale('log')
-        ax.set_ylim(bottom=1e-1)
-    
-    ax.grid(True, linestyle='--', alpha=0.7)
-    ax.legend()
-    
+        ax.plot(data.T, alpha=0.1)
+        ax.plot(np.mean(data, axis=0), color='red', linewidth=2)
+    ax.set_title(title)
+    ax.set_xlabel('Time step')
+    ax.set_ylabel('Population size')
     st.pyplot(fig)
     
-    # Экспорт PNG
+    # Export PNG
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+    fig.savefig(buf, format='png')
     buf.seek(0)
     st.download_button(
-        "Скачать график (PNG)", 
+        "Download plot PNG", 
         data=buf, 
         file_name=f"{title.replace(' ', '_')}.png", 
         mime="image/png"
     )
-    
-    # Экспорт CSV для числовых данных
-    if data.ndim == 1:
-        df = pd.DataFrame(data, columns=['Population'])
-    else:
-        df = pd.DataFrame(data.T)
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        "Скачать данные (CSV)", 
-        data=csv, 
-        file_name=f"{title.replace(' ', '_')}.csv", 
-        mime="text/csv"
-    )
 
-# ================== ПОЛЬЗОВАТЕЛЬСКИЙ ИНТЕРФЕЙС ================== #
+# ==== Streamlit UI ==== #
+st.set_page_config(page_title="Population Dynamics Simulator", layout="wide")
+st.title("🌱 Population Dynamics Simulator")
 
-st.set_page_config(
-    page_title="Симулятор Популяционной Динамики", 
-    layout="wide",
-    page_icon="🌱"
-)
-st.title("🌱 Симулятор Популяционной Динамики")
-
-# Информация о моделях
+# Model info
 model_info = {
-    "Логистический рост": "Классическая логистическая модель с емкостью K",
-    "Модель Рикера": "Экспоненциальный рост с зависимостью от плотности",
-    "Матрица Лесли": "Возрастно-структурированная модель",
-    "Модель с запаздыванием": "Зависимость от состояния в прошлом",
-    "Стохастическая": "Многократные запуски с шумом"
+    "Logistic Growth": "Classic logistic map with carrying capacity K",
+    "Ricker Model": "Exponential growth with density dependence",
+    "Leslie Matrix": "Age-structured model via Leslie matrix",
+    "Delay Model": "Population depends on past state (delay tau)",
+    "Stochastic": "Adds Gaussian noise to multiple runs"
 }
 
-# Боковая панель
-st.sidebar.header("Настройки модели")
-model = st.sidebar.selectbox(
-    "Выберите модель:", 
-    list(model_info.keys()),
-    help="Выберите тип популяционной модели"
-)
-st.sidebar.markdown(f"**Описание:** {model_info[model]}")
+# Sidebar
+st.sidebar.markdown("### Model Selection")
+model = st.sidebar.selectbox("Choose model:", list(model_info.keys()))
+st.sidebar.caption(model_info[model])
 
-# Общие параметры
-st.sidebar.subheader("Основные параметры")
-T = st.sidebar.slider(
-    "Временные шаги (T)", 
-    min_value=1, max_value=500, value=100,
-    help="Количество шагов симуляции"
-)
+# Common parameters
+st.sidebar.markdown("### Common Parameters")
+T = st.sidebar.number_input("Time steps (T)", min_value=1, max_value=500, value=100)
 
-common_params = {}
-if model != "Матрица Лесли":
-    common_params['N0'] = st.sidebar.number_input(
-        "Начальная популяция (N0)", 
-        min_value=0.0, value=10.0, step=1.0
-    )
-    common_params['r'] = st.sidebar.number_input(
-        "Скорость роста (r)", 
-        min_value=0.0, value=0.5, step=0.1,
-        help="Базовый коэффициент роста"
-    )
-    common_params['K'] = st.sidebar.number_input(
-        "Емкость среды (K)", 
-        min_value=1.0, value=100.0, step=10.0,
-        help="Максимальная поддерживаемая популяция"
-    )
-    
-    if model == "Логистический рост" and common_params.get('r', 0) > 3.0:
-        st.sidebar.warning(
-            "Высокий коэффициент роста (r > 3) может вызывать хаотическое поведение!"
-        )
+common = {}
+if model != "Leslie Matrix":
+    common['N0'] = st.sidebar.number_input("Initial population N0", min_value=0.0, value=10.0)
+    common['r'] = st.sidebar.number_input("Growth rate r", min_value=0.0, value=0.1)
+    if common['r'] > 3.0:
+        st.sidebar.warning("High growth rate (r > 3) may cause chaotic behavior!")
+    common['K'] = st.sidebar.number_input("Carrying capacity K", min_value=1.0, value=100.0)
 
-# Специфические параметры моделей
-if model == "Модель с запаздыванием":
-    tau = st.sidebar.slider(
-        "Запаздывание (τ)", 
-        min_value=1, max_value=20, value=5,
-        help="Временная задержка влияния на рост"
-    )
+# Model-specific parameters
+if model == "Delay Model":
+    tau = st.sidebar.slider("Delay (tau)", min_value=1, max_value=10, value=1)
 
-elif model == "Матрица Лесли":
-    n_age = st.sidebar.slider(
-        "Количество возрастных классов", 
-        min_value=2, max_value=10, value=3
-    )
-    
-    st.sidebar.subheader("Параметры Лесли")
-    with st.sidebar.expander("Коэффициенты фертильности"):
-        fertility = [
-            st.number_input(f"Фертильность класса {i}", 
-                          min_value=0.0, value=0.5, step=0.1)
-            for i in range(n_age)
-        ]
-    
-    with st.sidebar.expander("Вероятности выживания"):
-        survival = [
-            st.number_input(f"Выживаемость {i}→{i+1}", 
-                          min_value=0.0, max_value=1.0, value=0.8, step=0.05)
-            for i in range(n_age-1)
-        ]
-    
-    with st.sidebar.expander("Начальная популяция"):
-        N0_vec = [
-            st.number_input(f"Класс {i}", min_value=0.0, value=10.0, step=1.0)
-            for i in range(n_age)
-        ]
+elif model == "Leslie Matrix":
+    n = st.sidebar.number_input("Number of age classes", min_value=2, max_value=10, value=3)
+    with st.sidebar.expander("Fertility coefficients (f_i)"):
+        fertility = [st.number_input(f"f_{i}", min_value=0.0, value=0.5) for i in range(n)]
+    with st.sidebar.expander("Survival probabilities (s_i)"):
+        survival = [st.number_input(f"s_{i}", min_value=0.0, max_value=1.0, value=0.8) for i in range(n-1)]
+    with st.sidebar.expander("Initial population per age class"):
+        N0_vec = [st.number_input(f"N0_{i}", min_value=0.0, value=10.0) for i in range(n)]
 
-elif model == "Стохастическая":
-    st.sidebar.subheader("Стохастические параметры")
-    base_model = st.sidebar.selectbox(
-        "Базовая модель", 
-        ["Логистический рост", "Модель Рикера"]
-    )
-    repeats = st.sidebar.slider(
-        "Количество повторов", 
-        min_value=10, max_value=500, value=100
-    )
-    sigma = st.sidebar.slider(
-        "Уровень шума (σ)", 
-        min_value=0.0, max_value=1.0, value=0.2, step=0.05
-    )
+elif model == "Stochastic":
+    repeats = st.sidebar.number_input("Number of repeats", min_value=1, max_value=200, value=100)
+    sigma = st.sidebar.slider("Noise sigma", min_value=0.0, max_value=1.0, value=0.1)
+    base_model = st.sidebar.selectbox("Base model:", ["Logistic Growth", "Ricker Model"])
 
-# Дополнительные настройки
-st.sidebar.subheader("Настройки отображения")
-log_scale = st.sidebar.checkbox(
-    "Логарифмическая шкала", 
-    help="Использовать логарифмическую шкалу для оси Y"
-)
-show_stats = st.sidebar.checkbox(
-    "Показать статистику", 
-    value=True,
-    help="Отображать статистические характеристики"
-)
+# Simulation
+if st.sidebar.button("Run Simulation"):
+    try:
+        if model == "Logistic Growth":
+            traj = simulate_logistic(**common, T=T)
+            st.subheader("Logistic Growth")
+            plot_and_export(traj, 'Logistic Growth')
 
-# ================== ЗАПУСК СИМУЛЯЦИИ ================== #
+        elif model == "Ricker Model":
+            traj = simulate_ricker(**common, T=T)
+            st.subheader("Ricker Model")
+            plot_and_export(traj, 'Ricker Model')
 
-if st.sidebar.button("Запустить симуляцию", type="primary"):
-    with st.spinner("Выполняется симуляция..."):
-        try:
-            if model == "Логистический рост":
-                traj = simulate_logistic(**common_params, T=T)
-                plot_and_export(traj, "Логистический рост", log_scale)
-                
-            elif model == "Модель Рикера":
-                traj = simulate_ricker(**common_params, T=T)
-                plot_and_export(traj, "Модель Рикера", log_scale)
-                
-            elif model == "Матрица Лесли":
-                traj = simulate_leslie(N0_vec, fertility, survival, T)
-                df = pd.DataFrame(
-                    traj, 
-                    columns=[f"Возраст {i}" for i in range(n_age)]
-                )
-                st.line_chart(df)
-                
-                # Анализ матрицы Лесли
-                L = np.zeros((n_age, n_age))
-                L[0, :] = fertility
-                for i in range(1, n_age):
-                    L[i, i-1] = survival[i-1]
-                
-                eigvals = np.linalg.eigvals(L)
-                dominant = np.max(np.real(eigvals))
-                st.write(f"**Собственное число:** {dominant:.3f}")
-                
-                if dominant > 1:
-                    st.success("Популяция растет (λ > 1)")
-                elif dominant < 1:
-                    st.error("Популяция сокращается (λ < 1)")
-                else:
-                    st.info("Стабильная популяция (λ ≈ 1)")
-                
-            elif model == "Модель с запаздыванием":
-                traj = simulate_delay(**common_params, T=T, tau=tau)
-                plot_and_export(traj, "Модель с запаздыванием", log_scale)
-                
-            elif model == "Стохастическая":
-                base_fn = simulate_logistic if base_model == "Логистический рост" else simulate_ricker
-                results = simulate_stochastic(
-                    base_fn, 
-                    common_params['N0'], 
-                    common_params['r'], 
-                    common_params['K'], 
-                    T,
-                    sigma=sigma,
-                    repeats=repeats
-                )
-                
-                plot_and_export(results, "Стохастическая симуляция", log_scale)
-                
-                if show_stats:
-                    st.subheader("Статистика")
-                    stats_df = pd.DataFrame({
-                        'Mean': np.nanmean(results, axis=0),
-                        'Std': np.nanstd(results, axis=0),
-                        'Min': np.nanmin(results, axis=0),
-                        'Max': np.nanmax(results, axis=0)
-                    })
-                    st.dataframe(stats_df.style.background_gradient(), use_container_width=True)
+        elif model == "Delay Model":
+            traj = simulate_delay(**common, T=T, tau=tau)
+            st.subheader("Delay Model")
+            plot_and_export(traj, 'Delay Model')
+
+        elif model == "Leslie Matrix":
+            history = simulate_leslie(N0_vec, fertility, survival, T)
+            st.subheader("Leslie Matrix")
+            plot_and_export(history, 'Leslie Matrix')
+            # Dominant eigenvalue
+            L = np.zeros((n, n))
+            L[0, :] = fertility
+            for i in range(1, n):
+                L[i, i-1] = survival[i-1]
+            lambda_val = np.max(np.real(np.linalg.eigvals(L)))
+            st.write(f"Dominant eigenvalue λ = {lambda_val:.3f}")
+
+        elif model == "Stochastic":
+            base_sim = simulate_ricker if base_model == 'Ricker Model' else simulate_logistic
+            results = simulate_stochastic(base_sim, common['N0'], common['r'], common['K'], T,
+                                        sigma=sigma, repeats=repeats)
+            st.subheader("Stochastic Simulation")
+            plot_and_export(results, 'Stochastic Simulation')
+
+        # Validate results
+        if 'traj' in locals() and (np.isnan(traj).any() or (traj < 0).any()):
+            st.warning("Simulation produced invalid values (NaN or negative)")
             
-            # Проверка результатов
-            if 'traj' in locals() and traj is not None:
-                if np.isnan(traj).any():
-                    st.warning("Обнаружены NaN значения в результатах")
-                if (traj < 0).any():
-                    st.warning("Обнаружены отрицательные значения популяции")
-                    
-        except Exception as e:
-            st.error(f"Ошибка при выполнении симуляции: {str(e)}")
-            logger.exception("Simulation error")
+    except Exception as e:
+        st.error(f"Simulation error: {str(e)}")
+        logger.exception("Simulation failed")
 
-# Нижний колонтитул
+# Footer
 st.sidebar.markdown("---")
-st.sidebar.markdown("""
-**Справка:**
-- Логистическая модель: Nₜ₊₁ = Nₜ + rNₜ(1-Nₜ/K)
-- Модель Рикера: Nₜ₊₁ = Nₜexp[r(1-Nₜ/K)]
-""")
-st.sidebar.caption("v1.2 | © 2023 | Разработано с использованием Python и Streamlit")
+st.sidebar.info("Developed by [Your Name] — v1.0")
