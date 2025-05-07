@@ -11,10 +11,10 @@ try:
 except ModuleNotFoundError:
     sys.exit("Error: Streamlit is not available. Please install and run locally: `streamlit run app.py`.")
 
-# MUST BE FIRST STREAMLIT COMMAND!
+# ✅ set_page_config must come first
 st.set_page_config(page_title="Population Dynamics Simulator", layout="wide")
 
-# Logging
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,6 @@ def simulate_stochastic(base_sim, *args, sigma=0.1, repeats=100):
     return np.array(runs)
 
 # ==== UI ====
-st.set_page_config(page_title=_["title"], layout="wide")
 st.title(_["title"])
 
 model = st.sidebar.selectbox(_["select_model"], [
@@ -138,19 +137,23 @@ def plot_and_export(data, title):
     buf.seek(0)
     st.download_button(_["download_plot"], data=buf, file_name=f"{title}.png", mime="image/png")
 
+# ==== Simulation trigger ====
 if st.sidebar.button(_["simulate_btn"]):
     if model == "Logistic Growth":
         traj = simulate_logistic(common['N0'], common['r'], common['K'], T)
         st.line_chart(traj)
         plot_and_export(traj, 'logistic_growth')
+
     elif model == "Ricker Model":
         traj = simulate_ricker(common['N0'], common['r'], common['K'], T)
         st.line_chart(traj)
         plot_and_export(traj, 'ricker_model')
+
     elif model == "Delay Model":
         traj = simulate_delay(common['N0'], common['r'], common['K'], T, tau)
         st.line_chart(traj)
         plot_and_export(traj, 'delay_model')
+
     elif model == "Leslie Matrix":
         history = simulate_leslie(N0_vec, fertility, survival, T)
         df = pd.DataFrame(history, columns=[f"Age {i}" for i in range(len(N0_vec))])
@@ -163,6 +166,7 @@ if st.sidebar.button(_["simulate_btn"]):
         lambda_val = np.max(np.real(np.linalg.eigvals(L)))
         st.write(f"Dominant eigenvalue λ = {lambda_val:.3f}")
         st.download_button(_["download_csv"], data=df.to_csv(index=False).encode('utf-8'), file_name='leslie_matrix.csv')
+
     elif model == "Stochastic":
         base = simulate_ricker if base_model == 'Ricker' else simulate_logistic
         results = simulate_stochastic(base, common['N0'], common['r'], common['K'], T, sigma=sigma, repeats=repeats)
@@ -172,6 +176,6 @@ if st.sidebar.button(_["simulate_btn"]):
         st.line_chart(mean_traj)
         plot_and_export(mean_traj, 'stochastic_mean')
 
-# Footer
+# ==== Footer ====
 st.sidebar.markdown("---")
 st.sidebar.info(_["footer"])
