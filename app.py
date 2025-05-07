@@ -11,7 +11,10 @@ try:
 except ModuleNotFoundError:
     sys.exit("Error: Streamlit is not available. Please install and run locally: `streamlit run app.py`.")
 
-# Configure logging
+# MUST BE FIRST STREAMLIT COMMAND!
+st.set_page_config(page_title="Population Dynamics Simulator", layout="wide")
+
+# Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
