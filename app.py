@@ -1,9 +1,10 @@
 import sys
 import io
+import logging
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import logging
 
 # Streamlit import with exit if unavailable
 try:
@@ -15,45 +16,32 @@ except ModuleNotFoundError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ==== Streamlit page config and CSS ==== #
-st.set_page_config(page_title="Population Dynamics Simulator", layout="wide")
-
-# Inject CSS to fix footer at bottom
-st.markdown(
-    """
-    <style>
-    footer {
-        position: fixed;
-        bottom: 0;
-        width: 100%;
-        background-color: white;
-        padding: 5px;
-        text-align: center;
-        z-index: 100;
-    }
-    .reportview-container .main footer {visibility: hidden;}
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
 # ==== Simulation functions ==== #
 def simulate_logistic(N0: float, r: float, K: float, T: int) -> np.ndarray:
-    """Discrete logistic growth."""
+    """
+    Discrete logistic growth:
+    N_{t+1} = N_t + r * N_t * (1 - N_t / K)
+    """
     Ns = [N0]
     for _ in range(T):
         Ns.append(Ns[-1] + r * Ns[-1] * (1 - Ns[-1] / K))
     return np.array(Ns)
 
 def simulate_ricker(N0: float, r: float, K: float, T: int) -> np.ndarray:
-    """Ricker model."""
+    """
+    Ricker model:
+    N_{t+1} = N_t * exp(r * (1 - N_t / K))
+    """
     Ns = [N0]
     for _ in range(T):
         Ns.append(Ns[-1] * np.exp(r * (1 - Ns[-1] / K)))
     return np.array(Ns)
 
 def simulate_leslie(N0_vec: list, fertility: list, survival: list, T: int) -> np.ndarray:
-    """Leslie matrix age-structured model."""
+    """
+    Leslie matrix age-structured model.
+    N_{t+1} = L @ N_t
+    """
     n = len(N0_vec)
     N = np.array(N0_vec, dtype=float)
     history = [N.copy()]
@@ -67,14 +55,18 @@ def simulate_leslie(N0_vec: list, fertility: list, survival: list, T: int) -> np
     return np.array(history)
 
 def simulate_delay(N0: float, r: float, K: float, T: int, tau: int) -> np.ndarray:
-    """Delay model."""
+    """
+    Delay model: reproduction depends on N_{t - tau}.
+    """
     Ns = [N0] * (tau + 1)
     for t in range(tau, T + tau):
         Ns.append(Ns[t] * np.exp(r * (1 - Ns[t - tau] / K)))
     return np.array(Ns)
 
 def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100) -> np.ndarray:
-    """Stochastic simulations with Gaussian noise."""
+    """
+    Add Gaussian noise to multiple runs of base_sim.
+    """
     runs = []
     progress = st.progress(0)
     for i in range(repeats):
@@ -84,9 +76,11 @@ def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100)
         progress.progress((i + 1) / repeats)
     return np.array(runs)
 
-# ==== UI ==== #
+# ==== Streamlit UI ==== #
+st.set_page_config(page_title="Population Dynamics Simulator", layout="wide")
 st.title("🌱 Population Dynamics Simulator")
 
+# Model descriptions
 model_info = {
     "Logistic Growth": "Classic logistic map with carrying capacity K.",
     "Ricker Model": "Exponential growth with density dependence (Ricker).",
@@ -96,12 +90,12 @@ model_info = {
 }
 st.sidebar.info("Select a model and set parameters below.")
 
-# Model selection
+# Sidebar: model selection
 st.sidebar.markdown("### Model Selection")
 model = st.sidebar.selectbox("Choose model:", list(model_info.keys()))
 st.sidebar.caption(model_info[model])
 
-# Common parameters
+# Sidebar: common parameters
 st.sidebar.markdown("### Common Parameters")
 T = st.sidebar.number_input("Time steps (T)", min_value=1, max_value=500, value=100)
 if T > 500:
@@ -113,8 +107,7 @@ if model != "Leslie Matrix":
     common['r'] = st.sidebar.number_input("Growth rate r", min_value=0.0, value=0.1)
     common['K'] = st.sidebar.number_input("Carrying capacity K", min_value=1.0, value=100.0)
 
-# Model-specific
-  
+# Sidebar: model-specific parameters
 if model == "Delay Model":
     tau = st.sidebar.slider("Delay (tau)", min_value=1, max_value=10, value=1)
 
@@ -126,6 +119,7 @@ elif model == "Leslie Matrix":
         survival = [st.number_input(f"s_{i}", min_value=0.0, max_value=1.0, value=0.8) for i in range(n-1)]
     with st.sidebar.expander("Initial population per age class"):
         N0_vec = [st.number_input(f"N0_{i}", min_value=0.0, value=10.0) for i in range(n)]
+    # Validate Leslie params
     if any(f < 0 for f in fertility):
         st.sidebar.error("All fertility coefficients must be ≥ 0")
     if any(not (0 <= s <= 1) for s in survival):
@@ -138,10 +132,13 @@ elif model == "Stochastic":
     sigma = st.sidebar.slider("Noise sigma", min_value=0.0, max_value=1.0, value=0.1)
     base_model = st.sidebar.selectbox("Base model:", ["Logistic", "Ricker"])
 
-# Utility: plot + export
+# Utility: plot + export PNG
 def plot_and_export(data, title):
     fig, ax = plt.subplots()
-    ax.plot(data)
+    if data.ndim == 1:
+        ax.plot(data)
+    else:
+        ax.plot(data)
     ax.set_title(title)
     ax.set_xlabel('Time step')
     ax.set_ylabel('Population size')
@@ -178,10 +175,9 @@ if st.sidebar.button("Simulate"):
             st.subheader("Leslie Matrix")
             st.line_chart(df)
             plot_and_export(df.values, 'leslie_matrix')
-            L = np.zeros((n, n))
-            L[0, :] = fertility
-            for i in range(1, n):
-                L[i, i-1] = survival[i-1]
+            # Dominant eigenvalue
+            L = np.zeros((n, n)); L[0, :] = fertility
+            for i in range(1, n): L[i, i-1] = survival[i-1]
             lambda_val = np.max(np.real(np.linalg.eigvals(L)))
             st.write(f"Dominant eigenvalue λ = {lambda_val:.3f}")
             st.download_button("Download data CSV", data=df.to_csv(index=False).encode('utf-8'),
