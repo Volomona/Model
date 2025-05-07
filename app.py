@@ -1,4 +1,5 @@
 import sys
+import io
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -68,21 +69,16 @@ model = st.sidebar.selectbox("Choose model:", [
 st.sidebar.markdown("### Common Parameters")
 T = st.sidebar.number_input("Time steps (T)", min_value=1, max_value=1000, value=100)
 
-common_inputs = {"N0": None, "r": None, "K": None}
+common = {}
 if model != "Leslie Matrix":
-    common_inputs["N0"] = st.sidebar.number_input("Initial population N0", value=10.0)
-    common_inputs["r"] = st.sidebar.number_input("Growth rate r", value=0.1)
-    common_inputs["K"] = st.sidebar.number_input("Carrying capacity K", value=100.0)
+    common['N0'] = st.sidebar.number_input("Initial population N0", value=10.0)
+    common['r'] = st.sidebar.number_input("Growth rate r", value=0.1)
+    common['K'] = st.sidebar.number_input("Carrying capacity K", value=100.0)
 
 # Sidebar: model-specific parameters
 if model == "Delay Model":
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### Delay Parameter")
     tau = st.sidebar.slider("Delay (tau)", min_value=1, max_value=10, value=1)
-
-if model == "Leslie Matrix":
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### Leslie Matrix Parameters")
+elif model == "Leslie Matrix":
     n = st.sidebar.number_input("Number of age classes", min_value=2, max_value=10, value=3)
     with st.sidebar.expander("Fertility coefficients (f_i)", expanded=False):
         fertility = [st.number_input(f"f_{i}", min_value=0.0, value=0.5) for i in range(n)]
@@ -90,73 +86,66 @@ if model == "Leslie Matrix":
         survival = [st.number_input(f"s_{i}", min_value=0.0, max_value=1.0, value=0.8) for i in range(n-1)]
     with st.sidebar.expander("Initial population per age class", expanded=False):
         N0_vec = [st.number_input(f"N0_{i}", min_value=0.0, value=10.0) for i in range(n)]
-
-if model == "Stochastic":
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### Stochastic Parameters")
+elif model == "Stochastic":
     repeats = st.sidebar.number_input("Number of repeats", min_value=1, max_value=500, value=100)
     sigma = st.sidebar.slider("Noise sigma", min_value=0.0, max_value=1.0, value=0.1)
     base_model = st.sidebar.selectbox("Base model:", ["Logistic", "Ricker"])
 
-# Run simulation
+# Function to plot and export PNG
+def plot_and_export(data, title):
+    fig, ax = plt.subplots()
+    ax.plot(data)
+    ax.set_title(title)
+    ax.set_xlabel('Time step')
+    ax.set_ylabel('Population size')
+    st.pyplot(fig)
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    st.download_button("Download plot PNG", data=buf, file_name=f"{title}.png", mime="image/png")
+
+# Simulate button
 if st.sidebar.button("Simulate"):
-    with st.spinner("Simulating dynamics..."):
+    with st.spinner("Simulating..."):
         if model == "Logistic Growth":
-            traj = simulate_logistic(common_inputs["N0"], common_inputs["r"], common_inputs["K"], T)
-            st.subheader("Logistic Growth Dynamics")
-            st.line_chart(traj)
+            traj = simulate_logistic(common['N0'], common['r'], common['K'], T)
+            st.subheader("Logistic Growth")
+            plot_and_export(traj, 'logistic_growth')
 
         elif model == "Ricker Model":
-            traj = simulate_ricker(common_inputs["N0"], common_inputs["r"], common_inputs["K"], T)
-            st.subheader("Ricker Model Dynamics")
-            st.line_chart(traj)
+            traj = simulate_ricker(common['N0'], common['r'], common['K'], T)
+            st.subheader("Ricker Model")
+            plot_and_export(traj, 'ricker_model')
+
+        elif model == "Delay Model":
+            traj = simulate_delay(common['N0'], common['r'], common['K'], T, tau)
+            st.subheader("Delay Model")
+            plot_and_export(traj, 'delay_model')
 
         elif model == "Leslie Matrix":
             history = simulate_leslie(N0_vec, fertility, survival, T)
-            df = pd.DataFrame(history, columns=[f"Age {i}" for i in range(len(N0_vec))])
-            st.subheader("Leslie Matrix Age-Structured Dynamics")
+            df = pd.DataFrame(history, columns=[f"Age {i}" for i in range(n)])
+            st.subheader("Leslie Matrix")
             st.line_chart(df)
+            # Dominant eigenvalue
             L = np.zeros((n, n))
             L[0, :] = fertility
             for i in range(1, n):
                 L[i, i-1] = survival[i-1]
             lambda_val = np.max(np.real(np.linalg.eigvals(L)))
-            st.write(f"Dominant eigenvalue (λ): {lambda_val:.3f}")
-
-        elif model == "Delay Model":
-            traj = simulate_delay(common_inputs["N0"], common_inputs["r"], common_inputs["K"], T, tau)
-            st.subheader("Delay Model Dynamics")
-            st.line_chart(traj)
+            st.write(f"Dominant eigenvalue λ = {lambda_val:.3f}")
+            # Export table
+            st.download_button("Download data CSV", data=df.to_csv(index=False).encode('utf-8'),
+                               file_name='leslie_matrix.csv')
 
         elif model == "Stochastic":
-            base_sim = simulate_ricker if base_model == "Ricker" else simulate_logistic
-            results = simulate_stochastic(
-                base_sim,
-                common_inputs["N0"],
-                common_inputs["r"],
-                common_inputs["K"],
-                T,
-                sigma=sigma,
-                repeats=repeats
-            )
-            st.subheader("Stochastic Simulations")
+            base = simulate_ricker if base_model == 'Ricker' else simulate_logistic
+            results = simulate_stochastic(base, common['N0'], common['r'], common['K'], T,
+                                          sigma=sigma, repeats=repeats)
+            st.subheader("Stochastic Simulation")
             st.line_chart(pd.DataFrame(results.T))
-            st.line_chart(results.mean(axis=0))
-
-    # Export results
-    col1, col2 = st.columns(2)
-    with col1:
-        if model in ("Logistic Growth", "Ricker Model", "Delay Model"):
-            csv = pd.DataFrame({"N": traj}).to_csv(index=False).encode("utf-8")
-            st.download_button("Download CSV", data=csv, file_name="trajectory.csv")
-    with col2:
-        if model == "Leslie Matrix":
-            csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button("Download CSV", data=csv, file_name="leslie_history.csv")
-        elif model == "Stochastic":
-            df_all = pd.DataFrame(results)
-            csv = df_all.to_csv(index=False).encode("utf-8")
-            st.download_button("Download CSV", data=csv, file_name="stochastic_results.csv")
+            st.write("Mean trajectory:")
+            plot_and_export(results.mean(axis=0), 'stochastic_mean')
 
 # Footer
 st.sidebar.markdown("---")
