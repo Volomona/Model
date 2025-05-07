@@ -91,7 +91,7 @@ elif model == "Stochastic":
     sigma = st.sidebar.slider("Noise sigma", min_value=0.0, max_value=1.0, value=0.1)
     base_model = st.sidebar.selectbox("Base model:", ["Logistic", "Ricker"])
 
-# Function to plot and export PNG
+# Utility: plot and export PNG
 def plot_and_export(data, title):
     fig, ax = plt.subplots()
     ax.plot(data)
@@ -110,16 +110,19 @@ if st.sidebar.button("Simulate"):
         if model == "Logistic Growth":
             traj = simulate_logistic(common['N0'], common['r'], common['K'], T)
             st.subheader("Logistic Growth")
+            st.line_chart(traj)
             plot_and_export(traj, 'logistic_growth')
 
         elif model == "Ricker Model":
             traj = simulate_ricker(common['N0'], common['r'], common['K'], T)
             st.subheader("Ricker Model")
+            st.line_chart(traj)
             plot_and_export(traj, 'ricker_model')
 
         elif model == "Delay Model":
             traj = simulate_delay(common['N0'], common['r'], common['K'], T, tau)
             st.subheader("Delay Model")
+            st.line_chart(traj)
             plot_and_export(traj, 'delay_model')
 
         elif model == "Leslie Matrix":
@@ -127,14 +130,12 @@ if st.sidebar.button("Simulate"):
             df = pd.DataFrame(history, columns=[f"Age {i}" for i in range(n)])
             st.subheader("Leslie Matrix")
             st.line_chart(df)
-            # Dominant eigenvalue
             L = np.zeros((n, n))
             L[0, :] = fertility
             for i in range(1, n):
                 L[i, i-1] = survival[i-1]
             lambda_val = np.max(np.real(np.linalg.eigvals(L)))
             st.write(f"Dominant eigenvalue λ = {lambda_val:.3f}")
-            # Export table
             st.download_button("Download data CSV", data=df.to_csv(index=False).encode('utf-8'),
                                file_name='leslie_matrix.csv')
 
@@ -145,7 +146,9 @@ if st.sidebar.button("Simulate"):
             st.subheader("Stochastic Simulation")
             st.line_chart(pd.DataFrame(results.T))
             st.write("Mean trajectory:")
-            plot_and_export(results.mean(axis=0), 'stochastic_mean')
+            mean_traj = results.mean(axis=0)
+            st.line_chart(mean_traj)
+            plot_and_export(mean_traj, 'stochastic_mean')
 
 # Footer
 st.sidebar.markdown("---")
