@@ -79,7 +79,8 @@ def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100)
 # ==== Hybrid model ==== #
 def simulate_hybrid_model(N0: float, r: float, K: float, T: int, tau: int, sigma: float = 0.1, repeats: int = 100) -> np.ndarray:
     """
-    Hybrid model: a combination of logistic growth and the Ricker model, with delay and stochasticity.
+    Гибридная модель: сочетание логистического роста и модели Рикера, с задержкой и стохастичностью.
+    Сначала логистический рост, потом модель Рикера, затем стохастичность и задержка.
     """
     # Логистический рост
     logistic_traj = simulate_logistic(N0, r, K, T)
@@ -118,7 +119,7 @@ model_info = {
     "Leslie Matrix": "Age-structured model via Leslie matrix.",
     "Delay Model": "Population depends on past state (delay tau).",
     "Stochastic": "Adds Gaussian noise to multiple runs.",
-    "Hybrid model": "A combined model using logistic growth and the Ricker model with delay and stochasticity."
+    "Гибридная модель": "Комбинированная модель, использующая логистический рост и модель Рикера с задержкой и стохастичностью."
 }
 st.sidebar.info("Выберите модель и установите параметры ниже.")
 
@@ -158,9 +159,9 @@ elif model == "Leslie Matrix":
         st.sidebar.error("Все вероятности выживания должны быть в пределах [0,1]")
 
 elif model == "Stochastic":
-    repeats = st.sidebar.number_input("Number of repetitions", min_value=1, max_value=200, value=100)
+    repeats = st.sidebar.number_input("Число повторений", min_value=1, max_value=200, value=100)
     if repeats > 200:
-        st.sidebar.error("Too many repetitions; макс. 200")
+        st.sidebar.error("Слишком много повторений; макс. 200")
     sigma = st.sidebar.slider("Шум (sigma)", min_value=0.0, max_value=1.0, value=0.1)
     base_model = st.sidebar.selectbox("Основная модель:", ["Logistic", "Ricker"])
 
@@ -190,7 +191,7 @@ if st.sidebar.button("Симулировать"):
     with st.spinner("Симуляция..."):
         if model == "Logistic Growth":
             traj = simulate_logistic(common['N0'], common['r'], common['K'], T)
-            st.subheader("Logistical growth")
+            st.subheader("Логистический рост")
             st.line_chart(traj)
             plot_and_export(traj, 'logistic_growth')
 
@@ -202,7 +203,7 @@ if st.sidebar.button("Симулировать"):
 
         elif model == "Delay Model":
             traj = simulate_delay(common['N0'], common['r'], common['K'], T, tau)
-            st.subheader("The delayed model")
+            st.subheader("Модель с задержкой")
             st.line_chart(traj)
             plot_and_export(traj, 'delay_model')
 
@@ -239,4 +240,5 @@ if st.sidebar.button("Симулировать"):
 
 # Footer
 st.sidebar.markdown("---")
-st.sidebar.info("Designed by Lшнф Akhmetova — v1.0")
+st.sidebar.info("Разработано Лией Ахметовой — v1.0")
+st.sidebar.write("Репозиторий: https://github.com/yourrepo/population-simulator")
