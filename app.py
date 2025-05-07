@@ -132,19 +132,21 @@ if st.sidebar.button("Simulate"):
             st.line_chart(df)
             # Export PNG
             plot_and_export(history, 'leslie_matrix')
+            # Dominant eigenvalue
             L = np.zeros((n, n))
             L[0, :] = fertility
             for i in range(1, n):
                 L[i, i-1] = survival[i-1]
             lambda_val = np.max(np.real(np.linalg.eigvals(L)))
             st.write(f"Dominant eigenvalue λ = {lambda_val:.3f}")
+            # Export table
             st.download_button("Download data CSV", data=df.to_csv(index=False).encode('utf-8'),
-                               file_name='leslie_matrix.csv')
+                           file_name='leslie_matrix.csv')
 
         elif model == "Stochastic":
             base = simulate_ricker if base_model == 'Ricker' else simulate_logistic
             results = simulate_stochastic(base, common['N0'], common['r'], common['K'], T,
-                                          sigma=sigma, repeats=repeats)
+                                      sigma=sigma, repeats=repeats)
             st.subheader("Stochastic Simulation")
             st.line_chart(pd.DataFrame(results.T))
             st.write("Mean trajectory:")
