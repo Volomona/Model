@@ -130,6 +130,8 @@ if st.sidebar.button("Simulate"):
             df = pd.DataFrame(history, columns=[f"Age {i}" for i in range(n)])
             st.subheader("Leslie Matrix")
             st.line_chart(df)
+            # Export PNG
+            plot_and_export(history, 'leslie_matrix')
             L = np.zeros((n, n))
             L[0, :] = fertility
             for i in range(1, n):
@@ -138,7 +140,6 @@ if st.sidebar.button("Simulate"):
             st.write(f"Dominant eigenvalue λ = {lambda_val:.3f}")
             st.download_button("Download data CSV", data=df.to_csv(index=False).encode('utf-8'),
                                file_name='leslie_matrix.csv')
-            plot_and_export(mean_traj, 'leslie Matrix')
 
         elif model == "Stochastic":
             base = simulate_ricker if base_model == 'Ricker' else simulate_logistic
