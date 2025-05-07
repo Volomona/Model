@@ -88,7 +88,7 @@ model_info = {
     "Delay Model": "Population depends on past state (delay tau).",
     "Stochastic": "Adds Gaussian noise to multiple runs."
 }
-st.sidebar.markdown("### **Select a model and set parameters below.**")
+st.sidebar.info("### **Select a model and set parameters below.**")
 
 # Sidebar: model selection
 st.sidebar.markdown("### Model Selection")
