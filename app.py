@@ -40,12 +40,17 @@ def simulate_leslie(N0_vec: list, fertility: list, survival: list, T: int) -> np
         history.append(N.copy())
     return np.array(history)
 
+# Исправленная функция для модели с задержкой
 def simulate_delay(N0: float, r: float, K: float, T: int, tau: int) -> np.ndarray:
+    # Создаем историю с начальными значениями
     Ns = [N0] * (tau + 1)
+    # Симулируем T шагов
     for t in range(tau, T + tau):
-        Ns.append(Ns[t] * np.exp(r * (1 - Ns[t - tau] / K)))
-    return np.array(Ns)
+        N_next = Ns[t] * np.exp(r * (1 - Ns[t - tau] / K))
+        Ns.append(N_next)
+    return np.array(Ns[:T + 1])  # Возвращаем только T+1 точек
 
+# Улучшенная стохастическая симуляция
 def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100) -> np.ndarray:
     runs = []
     progress = st.progress(0)
@@ -111,16 +116,12 @@ elif model == "Модель Лесли":
         N0_vec = [st.number_input(f"N0_{i}", min_value=0.0, value=10.0) for i in range(n)]
 
 elif model == "Стохастическая симуляция":
-    repeats = st.sidebar.number_input("Число повторений", min_value=1, max_value=200, value=100)
-    sigma_values = st.sidebar.multiselect(
-        "Значения шума (σ)",
-        options=[0.0, 0.05, 0.1, 0.2, 0.5],
-        default=[0.1]
-    )
-    base_model = st.sidebar.selectbox("Основная модель:", ["Logistic", "Ricker"])
+    repeats = st.sidebar.number_input("Число повторений", min_value=1, max_value=200, value=50)
+    sigma = st.sidebar.number_input("Уровень шума (σ)", min_value=0.0, max_value=1.0, value=0.1, step=0.05)
+    base_model = st.sidebar.selectbox("Основная модель:", ["Логистический рост", "Модель Рикера"])
+    base_sim = simulate_logistic if base_model == "Логистический рост" else simulate_ricker
 
 else:
-    # Для моделей, где можно ввести несколько конфигураций параметров (r, K, N0)
     configs_count = st.sidebar.number_input("Количество конфигураций", min_value=1, max_value=5, value=1)
     config_params = []
     for i in range(configs_count):
@@ -136,7 +137,7 @@ if st.sidebar.button("Симулировать"):
             all_trajs = {}
             for idx, (N0_i, r_i, K_i) in enumerate(config_params):
                 traj = simulate_logistic(N0_i, r_i, K_i, T)
-                all_trajs[f"Конфигурация #{idx+1}"] = traj
+                all_trajs[f"Конфигурация #{idx+1} (r={r_i}, K={K_i})"] = traj
             df = pd.DataFrame(all_trajs)
             st.subheader("Логистический рост - Несколько конфигураций")
             st.line_chart(df)
@@ -146,7 +147,7 @@ if st.sidebar.button("Симулировать"):
             all_trajs = {}
             for idx, (N0_i, r_i, K_i) in enumerate(config_params):
                 traj = simulate_ricker(N0_i, r_i, K_i, T)
-                all_trajs[f"Конфигурация #{idx+1}"] = traj
+                all_trajs[f"Конфигурация #{idx+1} (r={r_i}, K={K_i})"] = traj
             df = pd.DataFrame(all_trajs)
             st.subheader("Модель Рикера - Несколько конфигураций")
             st.line_chart(df)
@@ -157,15 +158,9 @@ if st.sidebar.button("Симулировать"):
                 st.warning("Выберите хотя бы одно значение τ")
             else:
                 all_trajs = {}
-                min_len = None
                 for tau_i in tau_values:
                     traj = simulate_delay(common['N0'], common['r'], common['K'], T, tau_i)
-                    if min_len is None or len(traj) < min_len:
-                        min_len = len(traj)
                     all_trajs[f"τ = {tau_i}"] = traj
-                # Усечение всех траекторий до минимальной длины
-                for key in all_trajs:
-                    all_trajs[key] = all_trajs[key][:min_len]
                 df = pd.DataFrame(all_trajs)
                 st.subheader("Модель с задержкой - Разные τ")
                 st.line_chart(df)
@@ -185,22 +180,38 @@ if st.sidebar.button("Симулировать"):
             export_csv(df, 'leslie_matrix')
 
         elif model == "Стохастическая симуляция":
-            if not sigma_values:
-                st.warning("Выберите хотя бы одно значение σ")
+            if repeats < 1:
+                st.warning("Число повторений должно быть больше 0")
             else:
-                all_results = {}
-                base_sim = simulate_ricker if base_model == 'Ricker' else simulate_logistic
-                for sigma_i in sigma_values:
-                    results = simulate_stochastic(base_sim, common['N0'], common['r'], common['K'], T,
-                                                 sigma=sigma_i, repeats=repeats)
-                    # Средняя траектория
-                    mean_traj = results.mean(axis=0)
-                    all_results[f"σ = {sigma_i}"] = mean_traj
-                df = pd.DataFrame(all_results)
-                st.subheader("Стохастическая симуляция - Разный шум σ")
-                st.line_chart(df)
-                export_csv(df, 'stochastic_simulation_multiple_sigma')
+                results = simulate_stochastic(
+                    base_sim,
+                    common['N0'],
+                    common['r'],
+                    common['K'],
+                    T,
+                    sigma=sigma,
+                    repeats=repeats
+                )
+                
+                # Визуализация всех траекторий
+                fig, ax = plt.subplots(figsize=(10, 6))
+                for i in range(repeats):
+                    ax.plot(results[i], alpha=0.2, linewidth=0.8)
+                
+                # Визуализация среднего значения
+                mean_traj = results.mean(axis=0)
+                ax.plot(mean_traj, 'r-', linewidth=2, label='Средняя траектория')
+                
+                ax.set_title(f"Стохастическая симуляция ({repeats} траекторий)")
+                ax.set_xlabel("Время")
+                ax.set_ylabel("Популяция")
+                ax.legend()
+                ax.grid(True, alpha=0.3)
+                st.pyplot(fig)
+                
+                # Экспорт средних значений
+                export_csv(mean_traj, 'stochastic_simulation_mean')
 
 # Footer
 st.sidebar.markdown("---")
-st.sidebar.info("Разработано Лией Ахметовой — v1.0")
+st.sidebar.info("Разработано Лией Ахметовой — v1.1")
