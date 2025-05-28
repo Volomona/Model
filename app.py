@@ -67,7 +67,7 @@ model_info = {
     "Модель Рикера": "Экспоненциальный рост с зависимостью от плотности (Рикер).",
     "Модель Лесли": "Возрастная структура модели через матрицу Лесли.",
     "Модель с задержкой": "Популяция зависит от прошлого состояния (задержка τ).",
-    "Стохастическая симуляция": "Добавляет гауссов шум к нескольким запускам."
+    "Стохастическая симуляция": "Добавляет гауссов шум к нескольким запускам.",
 }
 st.sidebar.info("Выберите модель и установите параметры ниже.")
 
@@ -100,13 +100,17 @@ elif model == "Стохастическая симуляция":
     sigma = st.sidebar.slider("Шум (sigma)", min_value=0.0, max_value=1.0, value=0.1)
     base_model = st.sidebar.selectbox("Основная модель:", ["Logistic", "Ricker"])
 
-def plot_figure(data, title):
+def plot_and_export(data, title):
     fig, ax = plt.subplots()
     ax.plot(data if data.ndim == 1 else data)
     ax.set_title(title)
     ax.set_xlabel('Шаг времени')
     ax.set_ylabel('Размер популяции')
     st.pyplot(fig)
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    st.download_button("Скачать PNG", data=buf, file_name=f"{title}.png", mime="image/png")
 
 if st.sidebar.button("Симулировать"):
     with st.spinner("Симуляция..."):
@@ -114,26 +118,26 @@ if st.sidebar.button("Симулировать"):
             traj = simulate_logistic(common['N0'], common['r'], common['K'], T)
             st.subheader("Логистический рост")
             st.line_chart(traj)
-            plot_figure(traj, 'Логистический рост')
+            plot_and_export(traj, 'logistic_growth')
 
         elif model == "Модель Рикера":
             traj = simulate_ricker(common['N0'], common['r'], common['K'], T)
             st.subheader("Модель Рикера")
             st.line_chart(traj)
-            plot_figure(traj, 'Модель Рикера')
+            plot_and_export(traj, 'ricker_model')
 
         elif model == "Модель с задержкой":
             traj = simulate_delay(common['N0'], common['r'], common['K'], T, tau)
             st.subheader("Модель с задержкой")
             st.line_chart(traj)
-            plot_figure(traj, 'Модель с задержкой')
+            plot_and_export(traj, 'delay_model')
 
         elif model == "Модель Лесли":
             history = simulate_leslie(N0_vec, fertility, survival, T)
             df = pd.DataFrame(history, columns=[f"Возраст {i}" for i in range(n)])
             st.subheader("Модель Лесли")
             st.line_chart(df)
-            plot_figure(df.values, 'Модель Лесли')
+            plot_and_export(df.values, 'leslie_matrix')
             L = np.zeros((n, n)); L[0, :] = fertility
             for i in range(1, n): L[i, i-1] = survival[i-1]
             lambda_val = np.max(np.real(np.linalg.eigvals(L)))
@@ -150,7 +154,8 @@ if st.sidebar.button("Симулировать"):
             st.write("Средняя траектория:")
             mean_traj = results.mean(axis=0)
             st.line_chart(mean_traj)
-            plot_figure(mean_traj, 'Средняя траектория')
+            plot_and_export(mean_traj, 'stochastic_mean')
+
 
 # Footer
 st.sidebar.markdown("---")
