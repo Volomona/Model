@@ -6,14 +6,17 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+# Streamlit import with exit if unavailable
 try:
     import streamlit as st
 except ModuleNotFoundError:
     sys.exit("Error: Streamlit is not available. Please install and run locally: `streamlit run app.py`.")
 
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ==== Simulation functions ==== #
 def simulate_logistic(N0: float, r: float, K: float, T: int) -> np.ndarray:
     Ns = [N0]
     for _ in range(T):
@@ -55,29 +58,6 @@ def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100)
         progress.progress((i + 1) / repeats)
     return np.array(runs)
 
-def plot_and_export(data, filename):
-    fig, ax = plt.subplots()
-    if isinstance(data, np.ndarray) and data.ndim == 1:
-        ax.plot(data)
-        ax.set_ylabel("Популяция")
-        ax.set_xlabel("Время")
-    else:
-        for i in range(data.shape[1]):
-            ax.plot(data[:, i], label=f"Класс {i}")
-        ax.legend()
-        ax.set_ylabel("Популяция по классам")
-        ax.set_xlabel("Время")
-    st.pyplot(fig)
-    
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png')
-    st.download_button(
-        label="Скачать график PNG",
-        data=buf.getvalue(),
-        file_name=f"{filename}.png",
-        mime="image/png"
-    )
-
 def export_csv(data, filename):
     if isinstance(data, np.ndarray):
         df = pd.DataFrame(data)
@@ -91,13 +71,14 @@ def export_csv(data, filename):
         mime="text/csv"
     )
 
+# ==== Streamlit UI ==== #
 st.set_page_config(page_title="Population Dynamics Simulator", layout="wide")
 st.title("🌱 Симулятор Популяционной Динамики")
 
 model_info = {
     "Логистический рост": "Классическая логистическая карта с предельной численностью K.",
     "Модель Рикера": "Экспоненциальный рост с зависимостью от плотности (Рикер).",
-    "Модель Л Leslie": "Возрастная структура модели через матрицу Лесли.",
+    "Модель Лесли": "Возрастная структура модели через матрицу Лесли.",
     "Модель с задержкой": "Популяция зависит от прошлого состояния (задержка τ).",
     "Стохастическая симуляция": "Добавляет гауссов шум к нескольким запускам.",
 }
@@ -118,7 +99,7 @@ if model != "Модель Лесли":
 if model == "Модель с задержкой":
     tau = st.sidebar.slider("Задержка (τ)", min_value=1, max_value=10, value=1)
 
-elif model == "Модель Л Leslie":
+elif model == "Модель Лесли":
     n = st.sidebar.number_input("Число возрастных классов", min_value=2, max_value=10, value=3)
     with st.sidebar.expander("Коэффициенты рождаемости (f_i)"):
         fertility = [st.number_input(f"f_{i}", min_value=0.0, value=0.5) for i in range(n)]
@@ -133,65 +114,50 @@ elif model == "Стохастическая симуляция":
     base_model = st.sidebar.selectbox("Основная модель:", ["Logistic", "Ricker"])
 
 if st.sidebar.button("Симулировать"):
-    # Простая валидация
-    if model != "Модель Л Leslie":
-        if common['N0'] <= 0:
-            st.error("Начальная популяция N0 должна быть положительной.")
-        elif common['K'] <= 0:
-            st.error("Емкость K должна быть положительной.")
-        elif common['r'] < 0:
-            st.error("Темп роста r не может быть отрицательным.")
-        else:
-            pass
+    with st.spinner("Симуляция..."):
+        if model == "Логистический рост":
+            traj = simulate_logistic(common['N0'], common['r'], common['K'], T)
+            st.subheader("Логистический рост")
+            st.line_chart(traj)
+            export_csv(traj, 'logistic_growth_data')
 
-    if model == "Логистический рост":
-        traj = simulate_logistic(common['N0'], common['r'], common['K'], T)
-        st.subheader("Логистический рост")
-        st.line_chart(traj)
-        plot_and_export(traj, 'logistic_growth')
-        export_csv(traj, 'logistic_growth_data')
+        elif model == "Модель Рикера":
+            traj = simulate_ricker(common['N0'], common['r'], common['K'], T)
+            st.subheader("Модель Рикера")
+            st.line_chart(traj)
+            export_csv(traj, 'ricker_model_data')
 
-    elif model == "Модель Рикера":
-        traj = simulate_ricker(common['N0'], common['r'], common['K'], T)
-        st.subheader("Модель Рикера")
-        st.line_chart(traj)
-        plot_and_export(traj, 'ricker_model')
-        export_csv(traj, 'ricker_model_data')
+        elif model == "Модель с задержкой":
+            traj = simulate_delay(common['N0'], common['r'], common['K'], T, tau)
+            st.subheader("Модель с задержкой")
+            st.line_chart(traj)
+            export_csv(traj, 'delay_model_data')
 
-    elif model == "Модель с задержкой":
-        traj = simulate_delay(common['N0'], common['r'], common['K'], T, tau)
-        st.subheader("Модель с задержкой")
-        st.line_chart(traj)
-        plot_and_export(traj, 'delay_model')
-        export_csv(traj, 'delay_model_data')
+        elif model == "Модель Лесли":
+            history = simulate_leslie(N0_vec, fertility, survival, T)
+            df = pd.DataFrame(history, columns=[f"Возраст {i}" for i in range(n)])
+            st.subheader("Модель Лесли")
+            st.line_chart(df)
+            L = np.zeros((n, n)); L[0, :] = fertility
+            for i in range(1, n): L[i, i-1] = survival[i-1]
+            lambda_val = np.max(np.real(np.linalg.eigvals(L)))
+            export_csv(history, 'leslie_matrix_data')
+            st.write(f"Доминирующее собственное значение λ = {lambda_val:.3f}")
+            st.download_button("Скачать CSV данных", data=df.to_csv(index=False).encode('utf-8'),
+                               file_name='leslie_matrix.csv')
 
-    elif model == "Модель Л Leslie":
-        history = simulate_leslie(N0_vec, fertility, survival, T)
-        df = pd.DataFrame(history, columns=[f"Возраст {i}" for i in range(n)])
-        st.subheader("Модель Л Leslie")
-        st.line_chart(df)
-        L = np.zeros((n, n))
-        L[0, :] = fertility
-        for i in range(1, n):
-            L[i, i-1] = survival[i-1]
-        lambda_val = np.max(np.real(np.linalg.eigvals(L)))
-        st.write(f"Доминирующее собственное значение λ = {lambda_val:.3f}")
-        plot_and_export(history, 'leslie_matrix')
-        export_csv(history, 'leslie_matrix_data')
-        st.download_button("Скачать CSV данных", data=df.to_csv(index=False).encode('utf-8'),
-                           file_name='leslie_matrix.csv')
+        elif model == "Стохастическая симуляция":
+            base_sim = simulate_ricker if base_model == 'Ricker' else simulate_logistic
+            results = simulate_stochastic(base_sim, common['N0'], common['r'], common['K'], T,
+                                          sigma=sigma, repeats=repeats)
+            st.subheader("Стохастическая симуляция")
+            st.line_chart(pd.DataFrame(results.T))
+            st.write("Средняя траектория:")
+            mean_traj = results.mean(axis=0)
+            st.line_chart(mean_traj)
+            export_csv(results, 'stochastic_simulation_data')
 
-    elif model == "Стохастическая симуляция":
-        base_sim = simulate_ricker if base_model == 'Ricker' else simulate_logistic
-        results = simulate_stochastic(base_sim, common['N0'], common['r'], common['K'], T,
-                                      sigma=sigma, repeats=repeats)
-        st.subheader("Стохастическая симуляция")
-        st.line_chart(pd.DataFrame(results.T))
-        st.write("Средняя траектория:")
-        mean_traj = results.mean(axis=0)
-        st.line_chart(mean_traj)
-        plot_and_export(mean_traj, 'stochastic_mean')
-        export_csv(results, 'stochastic_simulation_data')
 
+# Footer
 st.sidebar.markdown("---")
 st.sidebar.info("Разработано Лией Ахметовой — v1.0")
