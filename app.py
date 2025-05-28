@@ -58,23 +58,6 @@ def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100)
         progress.progress((i + 1) / repeats)
     return np.array(runs)
 
-def simulate_hybrid_model(N0: float, r: float, K: float, T: int, tau: int, sigma: float = 0.1, repeats: int = 100) -> np.ndarray:
-    logistic_traj = simulate_logistic(N0, r, K, T)
-    ricker_traj = simulate_ricker(N0, r, K, T)
-    
-    runs = []
-    for _ in range(repeats):
-        noise_logistic = np.random.normal(0, sigma, size=logistic_traj.shape)
-        noisy_logistic = logistic_traj + noise_logistic
-        noise_ricker = np.random.normal(0, sigma, size=ricker_traj.shape)
-        noisy_ricker = ricker_traj + noise_ricker
-        runs.append(noisy_logistic + noisy_ricker)
-    
-    hybrid_traj = np.mean(np.array(runs), axis=0)
-    hybrid_traj_with_delay = simulate_delay(hybrid_traj[0], r, K, T, tau)
-    
-    return hybrid_traj_with_delay
-
 # ==== Streamlit UI ==== #
 st.set_page_config(page_title="Population Dynamics Simulator", layout="wide")
 st.title("🌱 Симулятор Популяционной Динамики")
@@ -84,8 +67,7 @@ model_info = {
     "Модель Рикера": "Экспоненциальный рост с зависимостью от плотности (Рикер).",
     "Модель Лесли": "Возрастная структура модели через матрицу Лесли.",
     "Модель с задержкой": "Популяция зависит от прошлого состояния (задержка τ).",
-    "Стохастическая симуляция": "Добавляет гауссов шум к нескольким запускам.",
-    "Гибридная модель": "Комбинированная модель, использующая логистический рост и модель Рикера с задержкой и стохастичностью."
+    "Стохастическая симуляция": "Добавляет гауссов шум к нескольким запускам."
 }
 st.sidebar.info("Выберите модель и установите параметры ниже.")
 
@@ -118,22 +100,13 @@ elif model == "Стохастическая симуляция":
     sigma = st.sidebar.slider("Шум (sigma)", min_value=0.0, max_value=1.0, value=0.1)
     base_model = st.sidebar.selectbox("Основная модель:", ["Logistic", "Ricker"])
 
-elif model == "Гибридная модель":
-    common['tau'] = st.sidebar.slider("Задержка (τ)", min_value=1, max_value=10, value=1)
-    common['sigma'] = st.sidebar.slider("Шум (sigma)", min_value=0.0, max_value=1.0, value=0.1)
-    repeats = st.sidebar.number_input("Число повторов", min_value=1, max_value=200, value=100)
-
-def plot_and_export(data, title):
+def plot_figure(data, title):
     fig, ax = plt.subplots()
     ax.plot(data if data.ndim == 1 else data)
     ax.set_title(title)
     ax.set_xlabel('Шаг времени')
     ax.set_ylabel('Размер популяции')
     st.pyplot(fig)
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png')
-    buf.seek(0)
-    st.download_button("Скачать PNG", data=buf, file_name=f"{title}.png", mime="image/png")
 
 if st.sidebar.button("Симулировать"):
     with st.spinner("Симуляция..."):
@@ -141,26 +114,26 @@ if st.sidebar.button("Симулировать"):
             traj = simulate_logistic(common['N0'], common['r'], common['K'], T)
             st.subheader("Логистический рост")
             st.line_chart(traj)
-            plot_and_export(traj, 'logistic_growth')
+            plot_figure(traj, 'Логистический рост')
 
         elif model == "Модель Рикера":
             traj = simulate_ricker(common['N0'], common['r'], common['K'], T)
             st.subheader("Модель Рикера")
             st.line_chart(traj)
-            plot_and_export(traj, 'ricker_model')
+            plot_figure(traj, 'Модель Рикера')
 
         elif model == "Модель с задержкой":
             traj = simulate_delay(common['N0'], common['r'], common['K'], T, tau)
             st.subheader("Модель с задержкой")
             st.line_chart(traj)
-            plot_and_export(traj, 'delay_model')
+            plot_figure(traj, 'Модель с задержкой')
 
         elif model == "Модель Лесли":
             history = simulate_leslie(N0_vec, fertility, survival, T)
             df = pd.DataFrame(history, columns=[f"Возраст {i}" for i in range(n)])
             st.subheader("Модель Лесли")
             st.line_chart(df)
-            plot_and_export(df.values, 'leslie_matrix')
+            plot_figure(df.values, 'Модель Лесли')
             L = np.zeros((n, n)); L[0, :] = fertility
             for i in range(1, n): L[i, i-1] = survival[i-1]
             lambda_val = np.max(np.real(np.linalg.eigvals(L)))
@@ -177,14 +150,7 @@ if st.sidebar.button("Симулировать"):
             st.write("Средняя траектория:")
             mean_traj = results.mean(axis=0)
             st.line_chart(mean_traj)
-            plot_and_export(mean_traj, 'stochastic_mean')
-
-        elif model == "Гибридная модель":
-            traj = simulate_hybrid_model(common['N0'], common['r'], common['K'], T,
-                                         common['tau'], sigma=common['sigma'], repeats=repeats)
-            st.subheader("Гибридная модель")
-            st.line_chart(traj)
-            plot_and_export(traj, 'hybrid_model')
+            plot_figure(mean_traj, 'Средняя траектория')
 
 # Footer
 st.sidebar.markdown("---")
