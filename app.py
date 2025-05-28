@@ -115,7 +115,7 @@ model_info = {
     "Leslie Matrix": "Age-structured model via Leslie matrix.",
     "Delay Model": "Population depends on past state (delay tau).",
     "Stochastic": "Adds Gaussian noise to multiple runs.",
-    "Гибридная модель": "Комбинированная модель, использующая логистический рост и модель Рикера с задержкой и стохастичностью."
+    "Hybrid model": "A combined model using logistic growth and the Ricker model with delay and stochasticity."
 }
 st.sidebar.info("Выберите модель и установите параметры ниже.")
 
