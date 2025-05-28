@@ -1,3 +1,76 @@
+import sys
+import io
+import logging
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Streamlit import with exit if unavailable
+try:
+    import streamlit as st
+except ModuleNotFoundError:
+    sys.exit("Error: Streamlit is not available. Please install and run locally: `streamlit run app.py`.")
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ==== Simulation functions ==== #
+def simulate_logistic(N0: float, r: float, K: float, T: int) -> np.ndarray:
+    Ns = [N0]
+    for _ in range(T):
+        Ns.append(Ns[-1] + r * Ns[-1] * (1 - Ns[-1] / K))
+    return np.array(Ns)
+
+def simulate_ricker(N0: float, r: float, K: float, T: int) -> np.ndarray:
+    Ns = [N0]
+    for _ in range(T):
+        Ns.append(Ns[-1] * np.exp(r * (1 - Ns[-1] / K)))
+    return np.array(Ns)
+
+def simulate_leslie(N0_vec: list, fertility: list, survival: list, T: int) -> np.ndarray:
+    n = len(N0_vec)
+    N = np.array(N0_vec, dtype=float)
+    history = [N.copy()]
+    L = np.zeros((n, n))
+    L[0, :] = fertility
+    for i in range(1, n):
+        L[i, i-1] = survival[i-1]
+    for _ in range(T):
+        N = L.dot(N)
+        history.append(N.copy())
+    return np.array(history)
+
+def simulate_delay(N0: float, r: float, K: float, T: int, tau: int) -> np.ndarray:
+    Ns = [N0] * (tau + 1)
+    for t in range(tau, T + tau):
+        Ns.append(Ns[t] * np.exp(r * (1 - Ns[t - tau] / K)))
+    return np.array(Ns)
+
+def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100) -> np.ndarray:
+    runs = []
+    progress = st.progress(0)
+    for i in range(repeats):
+        traj = base_sim(*args)
+        noise = np.random.normal(0, sigma, size=traj.shape)
+        runs.append(np.clip(traj + noise, 0, None))
+        progress.progress((i + 1) / repeats)
+    return np.array(runs)
+
+def export_csv(data, filename):
+    if isinstance(data, np.ndarray):
+        df = pd.DataFrame(data)
+    else:
+        df = pd.DataFrame(data)
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="Скачать данные CSV",
+        data=csv,
+        file_name=f"{filename}.csv",
+        mime="text/csv"
+    )
+
 # --- часть кода до этого не меняется (импорты, simulate_* и export_csv) ---
 
 # ==== Streamlit UI ==== #
