@@ -1,30 +1,34 @@
 import sys
+import io
 import logging
 
 import numpy as np
 import pandas as pd
-import streamlit as st
+import matplotlib.pyplot as plt
 
-# Настройка логирования
+# Streamlit import with exit if unavailable
+try:
+    import streamlit as st
+except ModuleNotFoundError:
+    sys.exit("Error: Streamlit is not available. Please install and run locally: `streamlit run app.py`.")
+
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ==== Кэшированные функции симуляции ==== #
-@st.cache_data
+# ==== Simulation functions ==== #
 def simulate_logistic(N0: float, r: float, K: float, T: int) -> np.ndarray:
     Ns = [N0]
     for _ in range(T):
         Ns.append(Ns[-1] + r * Ns[-1] * (1 - Ns[-1] / K))
     return np.array(Ns)
 
-@st.cache_data
 def simulate_ricker(N0: float, r: float, K: float, T: int) -> np.ndarray:
     Ns = [N0]
     for _ in range(T):
         Ns.append(Ns[-1] * np.exp(r * (1 - Ns[-1] / K)))
     return np.array(Ns)
 
-@st.cache_data
 def simulate_leslie(N0_vec: list, fertility: list, survival: list, T: int) -> np.ndarray:
     n = len(N0_vec)
     N = np.array(N0_vec, dtype=float)
@@ -38,37 +42,36 @@ def simulate_leslie(N0_vec: list, fertility: list, survival: list, T: int) -> np
         history.append(N.copy())
     return np.array(history)
 
-@st.cache_data
 def simulate_delay(N0: float, r: float, K: float, T: int, tau: int) -> np.ndarray:
     Ns = [N0] * (tau + 1)
     for t in range(tau, T + tau):
         Ns.append(Ns[t] * np.exp(r * (1 - Ns[t - tau] / K)))
     return np.array(Ns)
 
-@st.cache_data
 def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100) -> np.ndarray:
     runs = []
-    for _ in range(repeats):
+    progress = st.progress(0)
+    for i in range(repeats):
         traj = base_sim(*args)
         noise = np.random.normal(0, sigma, size=traj.shape)
         runs.append(np.clip(traj + noise, 0, None))
+        progress.progress((i + 1) / repeats)
     return np.array(runs)
 
-# ==== Функция экспорта в CSV ==== #
-def export_csv(data: np.ndarray, filename: str):
-    if data.ndim == 1:
-        df = pd.DataFrame(data, columns=["Population"])
+def export_csv(data, filename):
+    if isinstance(data, np.ndarray):
+        df = pd.DataFrame(data)
     else:
         df = pd.DataFrame(data)
-    csv_data = df.to_csv(index=False).encode('utf-8')
+    csv = df.to_csv(index=False).encode('utf-8')
     st.download_button(
-        label="Скачать CSV",
-        data=csv_data,
+        label="Скачать данные CSV",
+        data=csv,
         file_name=f"{filename}.csv",
         mime="text/csv"
     )
 
-# ==== UI Streamlit ==== #
+# ==== Streamlit UI ==== #
 st.set_page_config(page_title="Population Dynamics Simulator", layout="wide")
 st.title("🌱 Симулятор Популяционной Динамики")
 
@@ -84,6 +87,7 @@ st.sidebar.info("Выберите модель и установите пара�
 model = st.sidebar.selectbox("Выберите модель:", list(model_info.keys()))
 st.sidebar.caption(model_info[model])
 
+st.sidebar.markdown("### Общие параметры")
 T = st.sidebar.number_input("Шаги времени (T)", min_value=1, max_value=500, value=100)
 
 common = {}
@@ -106,7 +110,7 @@ elif model == "Модель Лесли":
 
 elif model == "Стохастическая симуляция":
     repeats = st.sidebar.number_input("Число повторений", min_value=1, max_value=200, value=100)
-    sigma = st.sidebar.slider("Шум (sigma)", min_value=0.0, max_value=1.0, value=0.1)
+    sigma = st.sidebar.slider("Шум (σ)", min_value=0.0, max_value=1.0, value=0.1)
     base_model = st.sidebar.selectbox("Основная модель:", ["Logistic", "Ricker"])
 
 if st.sidebar.button("Симулировать"):
@@ -115,32 +119,32 @@ if st.sidebar.button("Симулировать"):
             traj = simulate_logistic(common['N0'], common['r'], common['K'], T)
             st.subheader("Логистический рост")
             st.line_chart(traj)
-            export_csv(traj, "logistic_growth_data")
+            export_csv(traj, 'logistic_growth_data')
 
         elif model == "Модель Рикера":
             traj = simulate_ricker(common['N0'], common['r'], common['K'], T)
             st.subheader("Модель Рикера")
             st.line_chart(traj)
-            export_csv(traj, "ricker_model_data")
+            export_csv(traj, 'ricker_model_data')
 
         elif model == "Модель с задержкой":
             traj = simulate_delay(common['N0'], common['r'], common['K'], T, tau)
             st.subheader("Модель с задержкой")
             st.line_chart(traj)
-            export_csv(traj, "delay_model_data")
+            export_csv(traj, 'delay_model_data')
 
         elif model == "Модель Лесли":
             history = simulate_leslie(N0_vec, fertility, survival, T)
-            df = pd.DataFrame(history, columns=[f"Возраст {i}" for i in range(len(N0_vec))])
+            df = pd.DataFrame(history, columns=[f"Возраст {i}" for i in range(n)])
             st.subheader("Модель Лесли")
             st.line_chart(df)
-            L = np.zeros((len(N0_vec), len(N0_vec)))
-            L[0, :] = fertility
-            for i in range(1, len(N0_vec)):
-                L[i, i-1] = survival[i-1]
+            L = np.zeros((n, n)); L[0, :] = fertility
+            for i in range(1, n): L[i, i-1] = survival[i-1]
             lambda_val = np.max(np.real(np.linalg.eigvals(L)))
+            export_csv(history, 'leslie_matrix_data')
             st.write(f"Доминирующее собственное значение λ = {lambda_val:.3f}")
-            export_csv(history, "leslie_matrix_data")
+            st.download_button("Скачать CSV данных", data=df.to_csv(index=False).encode('utf-8'),
+                               file_name='leslie_matrix.csv')
 
         elif model == "Стохастическая симуляция":
             base_sim = simulate_ricker if base_model == 'Ricker' else simulate_logistic
@@ -151,7 +155,8 @@ if st.sidebar.button("Симулировать"):
             st.write("Средняя траектория:")
             mean_traj = results.mean(axis=0)
             st.line_chart(mean_traj)
-            export_csv(results, "stochastic_simulation_data")
+            export_csv(results, 'stochastic_simulation_data')
+
 
 # Footer
 st.sidebar.markdown("---")
