@@ -78,10 +78,6 @@ def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100)
 
 # ==== Hybrid model ==== #
 def simulate_hybrid_model(N0: float, r: float, K: float, T: int, tau: int, sigma: float = 0.1, repeats: int = 100) -> np.ndarray:
-    """
-    Гибридная модель: сочетание логистического роста и модели Рикера, с задержкой и стохастичностью.
-    Сначала логистический рост, потом модель Рикера, затем стохастичность и задержка.
-    """
     # Логистический рост
     logistic_traj = simulate_logistic(N0, r, K, T)
     
