@@ -185,25 +185,25 @@ def plot_and_export(data, title):
 # Simulate
 if st.sidebar.button("Симулировать"):
     with st.spinner("Симуляция..."):
-        if model == "Logistic Growth":
+        if model == "Логистический рост":
             traj = simulate_logistic(common['N0'], common['r'], common['K'], T)
             st.subheader("Логистический рост")
             st.line_chart(traj)
             plot_and_export(traj, 'logistic_growth')
 
-        elif model == "Ricker Model":
+        elif model == "Модель Рикера":
             traj = simulate_ricker(common['N0'], common['r'], common['K'], T)
             st.subheader("Модель Рикера")
             st.line_chart(traj)
             plot_and_export(traj, 'ricker_model')
 
-        elif model == "Delay Model":
+        elif model == "Модель с задержкой":
             traj = simulate_delay(common['N0'], common['r'], common['K'], T, tau)
             st.subheader("Модель с задержкой")
             st.line_chart(traj)
             plot_and_export(traj, 'delay_model')
 
-        elif model == "Leslie Matrix":
+        elif model == "Модель Лесли":
             history = simulate_leslie(N0_vec, fertility, survival, T)
             df = pd.DataFrame(history, columns=[f"Возраст {i}" for i in range(n)])
             st.subheader("Модель Лесли")
@@ -217,7 +217,7 @@ if st.sidebar.button("Симулировать"):
             st.download_button("Скачать CSV данных", data=df.to_csv(index=False).encode('utf-8'),
                                file_name='leslie_matrix.csv')
 
-        elif model == "Stochastic":
+        elif model == "Стохастическая симуляция":
             base_sim = simulate_ricker if base_model == 'Ricker' else simulate_logistic
             results = simulate_stochastic(base_sim, common['N0'], common['r'], common['K'], T,
                                           sigma=sigma, repeats=repeats)
