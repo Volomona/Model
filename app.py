@@ -106,7 +106,7 @@ def simulate_hybrid_model(N0: float, r: float, K: float, T: int, tau: int, sigma
 
 # ==== Streamlit UI ==== #
 st.set_page_config(page_title="Population Dynamics Simulator", layout="wide")
-st.title("🌱 Population Dynamics Simulator")
+st.title("🌱 Симулятор Популяционной Динамики")
 
 # Model descriptions
 model_info = {
