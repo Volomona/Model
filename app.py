@@ -1,4 +1,3 @@
-
 import sys
 import io
 import logging
@@ -173,3 +172,7 @@ if st.sidebar.button("Симулировать"):
             lambda_val = np.max(np.real(np.linalg.eigvals(L)))
             export_csv(history, "leslie_matrix")
             st.write(f"Доминирующее собственное значение λ = {lambda_val:.3f}")
+            
+# Footer
+st.sidebar.markdown("---")
+st.sidebar.info("Разработано Лией Ахметовой — v1.0")
