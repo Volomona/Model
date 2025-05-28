@@ -40,7 +40,6 @@ def simulate_leslie(N0_vec: list, fertility: list, survival: list, T: int) -> np
         history.append(N.copy())
     return np.array(history)
 
-# Исправленная функция для модели с задержкой
 def simulate_delay(N0: float, r: float, K: float, T: int, tau: int) -> np.ndarray:
     # Создаем историю с начальными значениями
     Ns = [N0] * (tau + 1)
@@ -50,7 +49,6 @@ def simulate_delay(N0: float, r: float, K: float, T: int, tau: int) -> np.ndarra
         Ns.append(N_next)
     return np.array(Ns[:T + 1])  # Возвращаем только T+1 точек
 
-# Улучшенная стохастическая симуляция
 def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100) -> np.ndarray:
     runs = []
     progress = st.progress(0)
@@ -117,7 +115,11 @@ elif model == "Модель Лесли":
 
 elif model == "Стохастическая симуляция":
     repeats = st.sidebar.number_input("Число повторений", min_value=1, max_value=200, value=50)
-    sigma = st.sidebar.number_input("Уровень шума (σ)", min_value=0.0, max_value=1.0, value=0.1, step=0.05)
+    sigma_values = st.sidebar.multiselect(
+        "Значения шума (σ)",
+        options=[0.0, 0.05, 0.1, 0.2, 0.5],
+        default=[0.1]
+    )
     base_model = st.sidebar.selectbox("Основная модель:", ["Логистический рост", "Модель Рикера"])
     base_sim = simulate_logistic if base_model == "Логистический рост" else simulate_ricker
 
@@ -134,24 +136,40 @@ else:
 if st.sidebar.button("Симулировать"):
     with st.spinner("Симуляция..."):
         if model == "Логистический рост":
-            all_trajs = {}
-            for idx, (N0_i, r_i, K_i) in enumerate(config_params):
-                traj = simulate_logistic(N0_i, r_i, K_i, T)
-                all_trajs[f"Конфигурация #{idx+1} (r={r_i}, K={K_i})"] = traj
-            df = pd.DataFrame(all_trajs)
-            st.subheader("Логистический рост - Несколько конфигураций")
-            st.line_chart(df)
-            export_csv(df, 'logistic_growth_multiple')
+            # Исправление для одной конфигурации
+            if configs_count == 1:
+                traj = simulate_logistic(config_params[0][0], config_params[0][1], config_params[0][2], T)
+                df = pd.DataFrame(traj, columns=["Популяция"])
+                st.subheader("Логистический рост")
+                st.line_chart(df)
+                export_csv(df, 'logistic_growth')
+            else:
+                all_trajs = {}
+                for idx, (N0_i, r_i, K_i) in enumerate(config_params):
+                    traj = simulate_logistic(N0_i, r_i, K_i, T)
+                    all_trajs[f"Конфигурация #{idx+1} (r={r_i}, K={K_i})"] = traj
+                df = pd.DataFrame(all_trajs)
+                st.subheader("Логистический рост - Несколько конфигураций")
+                st.line_chart(df)
+                export_csv(df, 'logistic_growth_multiple')
 
         elif model == "Модель Рикера":
-            all_trajs = {}
-            for idx, (N0_i, r_i, K_i) in enumerate(config_params):
-                traj = simulate_ricker(N0_i, r_i, K_i, T)
-                all_trajs[f"Конфигурация #{idx+1} (r={r_i}, K={K_i})"] = traj
-            df = pd.DataFrame(all_trajs)
-            st.subheader("Модель Рикера - Несколько конфигураций")
-            st.line_chart(df)
-            export_csv(df, 'ricker_model_multiple')
+            # Исправление для одной конфигурации
+            if configs_count == 1:
+                traj = simulate_ricker(config_params[0][0], config_params[0][1], config_params[0][2], T)
+                df = pd.DataFrame(traj, columns=["Популяция"])
+                st.subheader("Модель Рикера")
+                st.line_chart(df)
+                export_csv(df, 'ricker_model')
+            else:
+                all_trajs = {}
+                for idx, (N0_i, r_i, K_i) in enumerate(config_params):
+                    traj = simulate_ricker(N0_i, r_i, K_i, T)
+                    all_trajs[f"Конфигурация #{idx+1} (r={r_i}, K={K_i})"] = traj
+                df = pd.DataFrame(all_trajs)
+                st.subheader("Модель Рикера - Несколько конфигураций")
+                st.line_chart(df)
+                export_csv(df, 'ricker_model_multiple')
 
         elif model == "Модель с задержкой":
             if not tau_values:
@@ -180,38 +198,48 @@ if st.sidebar.button("Симулировать"):
             export_csv(df, 'leslie_matrix')
 
         elif model == "Стохастическая симуляция":
-            if repeats < 1:
-                st.warning("Число повторений должно быть больше 0")
+            if not sigma_values:
+                st.warning("Выберите хотя бы одно значение σ")
             else:
-                results = simulate_stochastic(
-                    base_sim,
-                    common['N0'],
-                    common['r'],
-                    common['K'],
-                    T,
-                    sigma=sigma,
-                    repeats=repeats
-                )
-                
-                # Визуализация всех траекторий
+                # Для отображения всех траекторий + средних значений
                 fig, ax = plt.subplots(figsize=(10, 6))
-                for i in range(repeats):
-                    ax.plot(results[i], alpha=0.2, linewidth=0.8)
+                all_means = {}
                 
-                # Визуализация среднего значения
-                mean_traj = results.mean(axis=0)
-                ax.plot(mean_traj, 'r-', linewidth=2, label='Средняя траектория')
+                for sigma in sigma_values:
+                    results = simulate_stochastic(
+                        base_sim,
+                        common['N0'],
+                        common['r'],
+                        common['K'],
+                        T,
+                        sigma=sigma,
+                        repeats=repeats
+                    )
+                    
+                    # Визуализация всех траекторий
+                    for i in range(repeats):
+                        ax.plot(results[i], alpha=0.1, linewidth=0.8)
+                    
+                    # Визуализация среднего значения
+                    mean_traj = results.mean(axis=0)
+                    ax.plot(mean_traj, linewidth=2, label=f'σ={sigma}')
+                    all_means[f"σ={sigma}"] = mean_traj
                 
-                ax.set_title(f"Стохастическая симуляция ({repeats} траекторий)")
+                ax.set_title(f"Стохастическая симуляция ({repeats} траекторий на сигму)")
                 ax.set_xlabel("Время")
                 ax.set_ylabel("Популяция")
                 ax.legend()
                 ax.grid(True, alpha=0.3)
                 st.pyplot(fig)
                 
+                # Отображение средних значений в Streamlit
+                st.subheader("Средние траектории для разных уровней шума")
+                means_df = pd.DataFrame(all_means)
+                st.line_chart(means_df)
+                
                 # Экспорт средних значений
-                export_csv(mean_traj, 'stochastic_simulation_mean')
+                export_csv(means_df, 'stochastic_simulation_means')
 
 # Footer
 st.sidebar.markdown("---")
-st.sidebar.info("Разработано Лией Ахметовой — v1.1")
+st.sidebar.info("Разработано Лией Ахметовой — v1.2")
