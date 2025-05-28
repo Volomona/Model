@@ -100,18 +100,6 @@ elif model == "Стохастическая симуляция":
     sigma = st.sidebar.slider("Шум (sigma)", min_value=0.0, max_value=1.0, value=0.1)
     base_model = st.sidebar.selectbox("Основная модель:", ["Logistic", "Ricker"])
 
-def plot_and_export(data, title):
-    fig, ax = plt.subplots()
-    ax.plot(data if data.ndim == 1 else data)
-    ax.set_title(title)
-    ax.set_xlabel('Шаг времени')
-    ax.set_ylabel('Размер популяции')
-    st.pyplot(fig)
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png')
-    buf.seek(0)
-    st.download_button("Скачать PNG", data=buf, file_name=f"{title}.png", mime="image/png")
-
 if st.sidebar.button("Симулировать"):
     with st.spinner("Симуляция..."):
         if model == "Логистический рост":
