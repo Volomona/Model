@@ -113,13 +113,30 @@ elif model == "Стохастическая симуляция":
     sigma = st.sidebar.slider("Шум (σ)", min_value=0.0, max_value=1.0, value=0.1)
     base_model = st.sidebar.selectbox("Основная модель:", ["Logistic", "Ricker"])
 
+# Добавим возможность задать несколько конфигураций
+num_configs = st.sidebar.number_input("Число конфигураций для сравнения", min_value=1, max_value=5, value=2)
+
+configs = []
+for i in range(num_configs):
+    with st.sidebar.expander(f"Конфигурация #{i+1}", expanded=(i==0)):
+        N0 = st.number_input(f"[{i+1}] Начальная популяция N0", min_value=0.0, value=10.0, key=f"N0_{i}")
+        r = st.number_input(f"[{i+1}] Темп роста r", min_value=0.0, value=0.1, key=f"r_{i}")
+        K = st.number_input(f"[{i+1}] Емкость K", min_value=1.0, value=100.0, key=f"K_{i}")
+        configs.append({'N0': N0, 'r': r, 'K': K})
+
 if st.sidebar.button("Симулировать"):
     with st.spinner("Симуляция..."):
-        if model == "Логистический рост":
-            traj = simulate_logistic(common['N0'], common['r'], common['K'], T)
-            st.subheader("Логистический рост")
-            st.line_chart(traj)
-            export_csv(traj, 'logistic_growth_data')
+        fig, ax = plt.subplots(figsize=(10, 5))
+        for idx, cfg in enumerate(configs):
+            traj = simulate_logistic(cfg['N0'], cfg['r'], cfg['K'], T)
+            label = f"N0={cfg['N0']}, r={cfg['r']}, K={cfg['K']}"
+            ax.plot(traj, label=label)
+        ax.set_title("Сравнение логистических моделей")
+        ax.set_xlabel("Время")
+        ax.set_ylabel("Популяция")
+        ax.legend()
+        st.pyplot(fig)
+
 
         elif model == "Модель Рикера":
             traj = simulate_ricker(common['N0'], common['r'], common['K'], T)
