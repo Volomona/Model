@@ -54,13 +54,13 @@ def simulate_leslie(N0_vec: list, fertility: list, survival: list, T: int) -> np
         history.append(N.copy())
     return np.array(history)
 
-def simulate_delay(N0: float, r: float, K: float, T: int, \tau: int) -> np.ndarray:
+def simulate_delay(N0: float, r: float, K: float, T: int, tau: int) -> np.ndarray:
     """
-    Delay model: reproduction depends on N_{t - \tau}.
+    Delay model: reproduction depends on N_{t - tau}.
     """
-    Ns = [N0] * (\tau + 1)
-    for t in range(\tau, T + \tau):
-        Ns.append(Ns[t] * np.exp(r * (1 - Ns[t - \tau] / K)))
+    Ns = [N0] * (tau + 1)
+    for t in range(tau, T + tau):
+        Ns.append(Ns[t] * np.exp(r * (1 - Ns[t - tau] / K)))
     return np.array(Ns)
 
 def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100) -> np.ndarray:
@@ -77,7 +77,7 @@ def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100)
     return np.array(runs)
 
 # ==== Hybrid model ==== #
-def simulate_hybrid_model(N0: float, r: float, K: float, T: int, \tau: int, sigma: float = 0.1, repeats: int = 100) -> np.ndarray:
+def simulate_hybrid_model(N0: float, r: float, K: float, T: int, tau: int, sigma: float = 0.1, repeats: int = 100) -> np.ndarray:
     # Логистический рост
     logistic_traj = simulate_logistic(N0, r, K, T)
     
@@ -100,7 +100,7 @@ def simulate_hybrid_model(N0: float, r: float, K: float, T: int, \tau: int, sigm
     hybrid_traj = np.mean(np.array(runs), axis=0)
     
     # Применение задержки
-    hybrid_traj_with_delay = simulate_delay(hybrid_traj[0], r, K, T, \tau)
+    hybrid_traj_with_delay = simulate_delay(hybrid_traj[0], r, K, T, tau)
     
     return hybrid_traj_with_delay
 
@@ -113,7 +113,7 @@ model_info = {
     "Логистический рост": "Классическая логистическая карта с предельной численностью K.",
     "Модель Рикера": "Экспоненциальный рост с зависимостью от плотности (Рикер).",
     "Матрица Лесли": "Возрастная структура модели через матрицу Лесли.",
-    "Модель с задержкой": "Популяция зависит от прошлого состояния (задержка \tau).",
+    "Модель с задержкой": "Популяция зависит от прошлого состояния (задержка tau).",
     "Стохастическая модель": "Добавляет гауссов шум к нескольким запускам.",
     "Гибридная модель": "Комбинированная модель, использующая логистический рост и модель Рикера с задержкой и стохастичностью."
 }
@@ -138,7 +138,7 @@ if model != "Leslie Matrix":
 
 # Sidebar: model-specific parameters
 if model == "Delay Model":
-    \tau = st.sidebar.slider("Задержка (\tau)", min_value=1, max_value=10, value=1)
+    tau = st.sidebar.slider("Задержка (tau)", min_value=1, max_value=10, value=1)
 
 elif model == "Leslie Matrix":
     n = st.sidebar.number_input("Число возрастных классов", min_value=2, max_value=10, value=3)
@@ -162,7 +162,7 @@ elif model == "Stochastic":
     base_model = st.sidebar.selectbox("Основная модель:", ["Logistic", "Ricker"])
 
 elif model == "Гибридная модель":
-    common['\tau'] = st.sidebar.slider("Задержка (\tau)", min_value=1, max_value=10, value=1)
+    common['tau'] = st.sidebar.slider("Задержка (tau)", min_value=1, max_value=10, value=1)
     common['sigma'] = st.sidebar.slider("Шум (sigma)", min_value=0.0, max_value=1.0, value=0.1)
     repeats = st.sidebar.number_input("Число повторов", min_value=1, max_value=200, value=100)
 
@@ -198,7 +198,7 @@ if st.sidebar.button("Симулировать"):
             plot_and_export(traj, 'ricker_model')
 
         elif model == "Модель с задержкой":
-            traj = simulate_delay(common['N0'], common['r'], common['K'], T, \tau)
+            traj = simulate_delay(common['N0'], common['r'], common['K'], T, tau)
             st.subheader("Модель с задержкой")
             st.line_chart(traj)
             plot_and_export(traj, 'delay_model')
@@ -229,7 +229,7 @@ if st.sidebar.button("Симулировать"):
             plot_and_export(mean_traj, 'stochastic_mean')
 
         elif model == "Гибридная модель":
-            traj = simulate_hybrid_model(common['N0'], common['r'], common['K'], T, common['\tau'], sigma=common['sigma'], repeats=repeats)
+            traj = simulate_hybrid_model(common['N0'], common['r'], common['K'], T, common['tau'], sigma=common['sigma'], repeats=repeats)
             st.subheader("Гибридная модель")
             st.line_chart(traj)
             plot_and_export(traj, 'hybrid_model')
