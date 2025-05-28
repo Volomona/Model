@@ -241,4 +241,3 @@ if st.sidebar.button("Симулировать"):
 # Footer
 st.sidebar.markdown("---")
 st.sidebar.info("Разработано Лией Ахметовой — v1.0")
-st.sidebar.write("Репозиторий: https://github.com/yourrepo/population-simulator")
