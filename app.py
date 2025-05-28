@@ -106,26 +106,22 @@ if st.sidebar.button("Симулировать"):
             traj = simulate_logistic(common['N0'], common['r'], common['K'], T)
             st.subheader("Логистический рост")
             st.line_chart(traj)
-            plot_and_export(traj, 'logistic_growth')
-
+            
         elif model == "Модель Рикера":
             traj = simulate_ricker(common['N0'], common['r'], common['K'], T)
             st.subheader("Модель Рикера")
             st.line_chart(traj)
-            plot_and_export(traj, 'ricker_model')
 
         elif model == "Модель с задержкой":
             traj = simulate_delay(common['N0'], common['r'], common['K'], T, tau)
             st.subheader("Модель с задержкой")
             st.line_chart(traj)
-            plot_and_export(traj, 'delay_model')
 
         elif model == "Модель Лесли":
             history = simulate_leslie(N0_vec, fertility, survival, T)
             df = pd.DataFrame(history, columns=[f"Возраст {i}" for i in range(n)])
             st.subheader("Модель Лесли")
             st.line_chart(df)
-            plot_and_export(df.values, 'leslie_matrix')
             L = np.zeros((n, n)); L[0, :] = fertility
             for i in range(1, n): L[i, i-1] = survival[i-1]
             lambda_val = np.max(np.real(np.linalg.eigvals(L)))
@@ -142,7 +138,6 @@ if st.sidebar.button("Симулировать"):
             st.write("Средняя траектория:")
             mean_traj = results.mean(axis=0)
             st.line_chart(mean_traj)
-            plot_and_export(mean_traj, 'stochastic_mean')
 
 
 # Footer
