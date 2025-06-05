@@ -14,7 +14,6 @@ except ModuleNotFoundError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ==== Simulation functions ==== #
 def simulate_logistic(N0: float, r: float, K: float, T: int) -> np.ndarray:
     Ns = [N0]
     for _ in range(T):
@@ -72,7 +71,6 @@ def export_csv(data, filename):
         mime="text/csv"
     )
 
-# ==== Streamlit UI ==== #
 st.set_page_config(page_title="Population Dynamics Simulator", layout="wide")
 st.title("🌱 Симулятор Популяционной Динамики")
 
@@ -242,4 +240,4 @@ if st.sidebar.button("Симулировать"):
 
 # Footer
 st.sidebar.markdown("---")
-st.sidebar.info("Разработано Лией Ахметовой — v1.2")
+st.sidebar.info("Разработано Лией Ахметовой — v1.0")
