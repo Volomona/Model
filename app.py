@@ -75,7 +75,7 @@ def export_csv(data, filename,typem,str):
 
     response = g4f.ChatCompletion.create(
         model=g4f.models.gpt_4,
-        messages=[{"role": "user", "content": f"Воспринимай график как данные точек.Проанализируй график или возможно несколько графиков популяционной модели ничего не предлагай, будто ты научный сотрудник. Тип модели:{typem} вот результат симуляции: {str}"}],
+        messages=[{"role": "user", "content": f"Воспринимай график как данные точек.Проанализируй график или возможно несколько графиков популяционной модели.Ничего не проси уточнить. Это не чат ты пишешь 1 раз и всё.Обязательно форматируй текст по MakrDown. будто ты научный сотрудник. Тип модели:{typem} вот результат симуляции: {str}"}],
         #stream=True
     )  # alternative model setting
     container = st.container(border=True)
@@ -147,40 +147,47 @@ else:
 if st.sidebar.button("Симулировать"):
     with st.spinner("Симуляция..."):
         if model == "Логистический рост":
-            # Исправление для одной конфигурации
             if configs_count == 1:
                 traj = simulate_logistic(config_params[0][0], config_params[0][1], config_params[0][2], T)
                 df = pd.DataFrame(traj, columns=["Популяция"])
                 st.subheader("Логистический рост")
                 st.line_chart(df)
-                export_csv(df, 'logistic_growth','Логистический рост',traj)
+                export_csv(df, 'logistic_growth', 'Логистический рост',
+                           f"Одна траектория: N0={config_params[0][0]}, r={config_params[0][1]}, K={config_params[0][2]}\nДанные:\n{traj}")
             else:
                 all_trajs = {}
+                config_descriptions = []
                 for idx, (N0_i, r_i, K_i) in enumerate(config_params):
                     traj = simulate_logistic(N0_i, r_i, K_i, T)
-                    all_trajs[f"Конфигурация #{idx+1} (r={r_i}, K={K_i})"] = traj
+                    all_trajs[f"Конфигурация #{idx + 1} (r={r_i}, K={K_i})"] = traj
+                    config_descriptions.append(f"Конфигурация #{idx + 1}: N0={N0_i}, r={r_i}, K={K_i}")
                 df = pd.DataFrame(all_trajs)
                 st.subheader("Логистический рост - Несколько конфигураций")
                 st.line_chart(df)
-                export_csv(df, 'logistic_growth_multiple','Логистический рост',all_traj)
+                export_csv(df, 'logistic_growth_multiple', 'Логистический рост',
+                           f"Множественные траектории:\n{'\n'.join(config_descriptions)}\nДанные:\n{all_trajs}")
+
 
         elif model == "Модель Рикера":
-            # Исправление для одной конфигурации
             if configs_count == 1:
                 traj = simulate_ricker(config_params[0][0], config_params[0][1], config_params[0][2], T)
                 df = pd.DataFrame(traj, columns=["Популяция"])
                 st.subheader("Модель Рикера")
                 st.line_chart(df)
-                export_csv(df, 'ricker_model','Модель Рикера',traj)
+                export_csv(df, 'ricker_model', 'Модель Рикера',
+                           f"Одна траектория: N0={config_params[0][0]}, r={config_params[0][1]}, K={config_params[0][2]}\nДанные:\n{traj}")
             else:
                 all_trajs = {}
+                config_descriptions = []
                 for idx, (N0_i, r_i, K_i) in enumerate(config_params):
                     traj = simulate_ricker(N0_i, r_i, K_i, T)
-                    all_trajs[f"Конфигурация #{idx+1} (r={r_i}, K={K_i})"] = traj
+                    all_trajs[f"Конфигурация #{idx + 1} (r={r_i}, K={K_i})"] = traj
+                    config_descriptions.append(f"Конфигурация #{idx + 1}: N0={N0_i}, r={r_i}, K={K_i}")
                 df = pd.DataFrame(all_trajs)
                 st.subheader("Модель Рикера - Несколько конфигураций")
                 st.line_chart(df)
-                export_csv(df, 'ricker_model_multiple','Логистический рост',all_trajs)
+                export_csv(df, 'ricker_model_multiple', 'Модель Рикера',
+                           f"Множественные траектории:\n{'\n'.join(config_descriptions)}\nДанные:\n{all_trajs}")
 
 
         elif model == "Модель с задержкой":
@@ -188,13 +195,17 @@ if st.sidebar.button("Симулировать"):
                 st.warning("Выберите хотя бы одно значение τ")
             else:
                 all_trajs = {}
+                tau_descriptions = []
                 for tau_i in tau_values:
                     traj = simulate_delay(common['N0'], common['r'], common['K'], T, tau_i)
                     all_trajs[f"τ = {tau_i}"] = traj
+                    tau_descriptions.append(
+                        f"Задержка τ={tau_i} при N0={common['N0']}, r={common['r']}, K={common['K']}")
                 df = pd.DataFrame(all_trajs)
                 st.subheader("Модель с задержкой - Разные τ")
                 st.line_chart(df)
-                export_csv(df, 'delay_model_multiple_tau','Модель с задержкой',traj)
+                export_csv(df, 'delay_model_multiple_tau', 'Модель с задержкой',
+                           f"Траектории с разными задержками:\n{'\n'.join(tau_descriptions)}\nДанные:\n{all_trajs}")
 
         elif model == "Модель Лесли":
             history = simulate_leslie(N0_vec, fertility, survival, T)
@@ -209,14 +220,14 @@ if st.sidebar.button("Симулировать"):
             st.write(f"Доминирующее собственное значение λ = {lambda_val:.3f}")
             export_csv(df, 'leslie_matrix','Модель Лесли',history)
 
+
         elif model == "Стохастическая симуляция":
             if not sigma_values:
                 st.warning("Выберите хотя бы одно значение σ")
             else:
-                # Для отображения всех траекторий + средних значений
                 fig, ax = plt.subplots(figsize=(10, 6))
                 all_means = {}
-
+                sigma_descriptions = []
                 for sigma in sigma_values:
                     results = simulate_stochastic(
                         base_sim,
@@ -227,30 +238,22 @@ if st.sidebar.button("Симулировать"):
                         sigma=sigma,
                         repeats=repeats
                     )
-
-                    # Визуализация всех траекторий
                     for i in range(repeats):
                         ax.plot(results[i], alpha=0.1, linewidth=0.8)
-
-                    # Визуализация среднего значения
                     mean_traj = results.mean(axis=0)
                     ax.plot(mean_traj, linewidth=2, label=f'σ={sigma}')
                     all_means[f"σ={sigma}"] = mean_traj
-
+                    sigma_descriptions.append(f"σ={sigma} (N0={common['N0']}, r={common['r']}, K={common['K']})")
                 ax.set_title(f"Стохастическая симуляция ({repeats} траекторий на сигму)")
-                ax.set_xlabel("Время")
-                ax.set_ylabel("Популяция")
                 ax.legend()
-                ax.grid(True, alpha=0.3)
                 st.pyplot(fig)
-
-                # Отображение средних значений в Streamlit
-                st.subheader("Средние траектории для разных уровней шума")
                 means_df = pd.DataFrame(all_means)
+                st.subheader("Средние траектории для разных уровней шума")
                 st.line_chart(means_df)
-
-                # Экспорт средних значений
-                export_csv(means_df, 'stochastic_simulation_means', 'Стохастическая модель',results)
+                export_csv(means_df, 'stochastic_simulation_means', 'Стохастическая модель',
+                           f"Стохастические траектории с параметрами:\n{'\n'.join(sigma_descriptions)}\n"
+                           f"Средние значения:\n{all_means}\n"
+                           f"Базовые параметры: N0={common['N0']}, r={common['r']}, K={common['K']}")
 
 # Footer
 st.sidebar.markdown("---")
