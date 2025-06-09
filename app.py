@@ -1,223 +1,257 @@
+import sys
+import io
+import logging
+
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
+import streamlit as st
 
-def simulate_logistic(N0, r, K, T):
+try:
+    import streamlit as st
+except ModuleNotFoundError:
+    sys.exit("Error: Streamlit is not available. Please install and run locally: `streamlit run app.py`.")
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def simulate_logistic(N0: float, r: float, K: float, T: int) -> np.ndarray:
     Ns = [N0]
     for _ in range(T):
-        Nt = Ns[-1]
-        if K <= 0 or Nt > 10 * K or Nt < -10 * K:
-            Ns.append(np.nan)
-            continue
-        next_N = Nt + r * Nt * (1 - Nt / K)
-        Ns.append(next_N if np.isfinite(next_N) else np.nan)
+        Ns.append(Ns[-1] + r * Ns[-1] * (1 - Ns[-1] / K))
     return np.array(Ns)
 
-def simulate_ricker(N0, r, K, T):
+def simulate_ricker(N0: float, r: float, K: float, T: int) -> np.ndarray:
     Ns = [N0]
     for _ in range(T):
-        Nt = Ns[-1]
-        if K <= 0 or Nt > 10 * K or Nt < -10 * K:
-            Ns.append(np.nan)
-            continue
-        next_N = Nt * np.exp(r * (1 - Nt / K))
-        Ns.append(next_N if np.isfinite(next_N) else np.nan)
+        Ns.append(Ns[-1] * np.exp(r * (1 - Ns[-1] / K)))
     return np.array(Ns)
 
-def simulate_leslie_lambda_max(fertility, survival):
-    n = len(fertility)
+def simulate_leslie(N0_vec: list, fertility: list, survival: list, T: int) -> np.ndarray:
+    n = len(N0_vec)
+    N = np.array(N0_vec, dtype=float)
+    history = [N.copy()]
     L = np.zeros((n, n))
     L[0, :] = fertility
     for i in range(1, n):
         L[i, i-1] = survival[i-1]
-    eigvals = np.linalg.eigvals(L)
-    return np.max(np.abs(eigvals))
-
-def simulate_delay_amplitude(N0, r, K, T, tau, T_metric_calc):
-    if tau < 1:
-        tau = 1
-    Ns = [N0] * (tau + 1)
     for _ in range(T):
-        N_t = Ns[-1]
-        N_t_minus_tau = Ns[-(tau + 1)]
-        if K <= 0:
-            next_N = np.nan
-        else:
-            next_N = N_t * np.exp(r * (1 - N_t_minus_tau / K))
-        Ns.append(next_N if np.isfinite(next_N) else np.nan)
+        N = L.dot(N)
+        history.append(N.copy())
+    return np.array(history)
 
-    simulated_part = np.array(Ns[tau + 1 : tau + 1 + T])
-    traj_clean = simulated_part[~np.isnan(simulated_part)]
-    if traj_clean.size > T_metric_calc:
-        settled = traj_clean[-T_metric_calc:]
-        if settled.size > 1:
-            return np.max(settled) - np.min(settled)
-    return np.nan
+def simulate_delay(N0: float, r: float, K: float, T: int, tau: int) -> np.ndarray:
+    # Создаем историю с начальными значениями
+    Ns = [N0] * (tau + 1)
+    # Симулируем T шагов
+    for t in range(tau, T + tau):
+        N_next = Ns[t] * np.exp(r * (1 - Ns[t - tau] / K))
+        Ns.append(N_next)
+    return np.array(Ns[:T + 1])  # Возвращаем только T+1 точек
 
-def simulate_stochastic_std(N0, r, K, T, sigma, repeats):
-    finals = []
-    for _ in range(repeats):
-        traj = simulate_ricker(N0, r, K, T)
+def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100) -> np.ndarray:
+    runs = []
+    progress = st.progress(0)
+    for i in range(repeats):
+        traj = base_sim(*args)
         noise = np.random.normal(0, sigma, size=traj.shape)
-        noisy = traj + noise
-        noisy = np.where(np.isfinite(noisy), noisy, np.nan)
-        final_vals = noisy[~np.isnan(noisy)]
-        if final_vals.size > 0:
-            finals.append(final_vals[-1])
-    finals = np.array(finals)
-    return np.nanstd(finals) if finals.size > 1 else np.nan
+        runs.append(np.clip(traj + noise, 0, None))
+        progress.progress((i + 1) / repeats)
+    return np.array(runs)
 
-N0_default = 10.0
-T_sim = 200            
-T_metric = 50          
+def export_csv(data, filename,typem,str):
+    if isinstance(data, np.ndarray):
+        df = pd.DataFrame(data)
+    else:
+        df = pd.DataFrame(data)
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="Скачать данные CSV",
+        data=csv,
+        file_name=f"{filename}.csv",
+        mime="text/csv"
+    )
+    import g4f
 
-# 1) Логистическая модель: r ∈ [0.5, 2.0] с шагом 0.1; K ∈ [50, 100, ..., 500]
-r_log_vals = np.arange(0.5, 2.01, 0.1)
-K_log_vals = np.arange(50, 501, 50)
+    response = g4f.ChatCompletion.create(
+        model=g4f.models.gpt_4,
+        messages=[{"role": "user", "content": f"Проанализируй график популяционной модели ничего не предлагай, будто ты научный сотрудник. Тип модели:{typem} вот результат симуляции: {str}"}],
+        #stream=True
+    )  # alternative model setting
+    container = st.container(border=True)
+    container.write("Анализ полученных данных:")
+    container.write(response)
 
-# 2) Модель Рикера: те же диапазоны r и K
-r_rick_vals = np.arange(0.5, 2.01, 0.1)
-K_rick_vals = np.arange(50, 501, 50)
 
-# 3) Модель Лесли (n=3, базовые значения):
-f_base = np.array([0.5, 0.3, 0.2])
-s_base = np.array([0.8, 0.6])
-# Варьируем каждый параметр ±20%
-f0_vals = np.linspace(f_base[0] * 0.8, f_base[0] * 1.2, 10)   # 10 точек от 0.4 до 0.6
-s0_vals = np.linspace(s_base[0] * 0.8, s_base[0] * 1.2, 10)   # 10 точек от 0.64 до 0.96
+st.set_page_config(page_title="Population Dynamics Simulator", layout="wide")
+st.title("🌱 Симулятор Популяционной Динамики")
 
-# 4) Модель с запаздыванием: τ ∈ {1, 2, 5}, r ∈ [0.5, 2.0] шагом 0.1, K = 100
-tau_vals = [1, 2, 5]
-r_delay_vals = np.arange(0.5, 2.01, 0.1)
-K_delay_fixed = 100.0
+model_info = {
+    "Логистический рост": "Классическая логистическая карта с предельной численностью K.",
+    "Модель Рикера": "Экспоненциальный рост с зависимостью от плотности (Рикер).",
+    "Модель Лесли": "Возрастная структура модели через матрицу Лесли.",
+    "Модель с задержкой": "Популяция зависит от прошлого состояния (задержка τ).",
+    "Стохастическая симуляция": "Добавляет гауссов шум к нескольким запускам.",
+}
+st.sidebar.info("Выберите модель и установите параметры ниже.")
 
-# 5) Стохастическая модель: r ∈ [0.5, 2.0] шагом 0.1, sigma ∈ {0.0, 0.1, 0.5}, K=100, repeats=100
-r_stoch_vals = np.arange(0.5, 2.01, 0.1)
-sigma_vals = [0.0, 0.1, 0.5]
-K_stoch_fixed = 100.0
-repeats_stoch = 100
-T_stoch = 100   # для стохастики достаточно 100 шагов
+model = st.sidebar.selectbox("Выберите модель:", list(model_info.keys()))
+st.sidebar.caption(model_info[model])
 
-# 1) Логистическая модель
-amplitude_log = np.full((len(K_log_vals), len(r_log_vals)), np.nan)
-for i, K_val in enumerate(K_log_vals):
-    for j, r_val in enumerate(r_log_vals):
-        traj = simulate_logistic(N0_default, r_val, K_val, T_sim)
-        traj_clean = traj[~np.isnan(traj)]
-        if traj_clean.size > T_metric:
-            settled = traj_clean[-T_metric:]
-            amplitude_log[i, j] = settled.max() - settled.min()
+st.sidebar.markdown("### Общие параметры")
+T = st.sidebar.number_input("Шаги времени (T)", min_value=1, max_value=500, value=100)
 
-# 2) Модель Рикера
-amplitude_rick = np.full((len(K_rick_vals), len(r_rick_vals)), np.nan)
-for i, K_val in enumerate(K_rick_vals):
-    for j, r_val in enumerate(r_rick_vals):
-        traj = simulate_ricker(N0_default, r_val, K_val, T_sim)
-        traj_clean = traj[~np.isnan(traj)]
-        if traj_clean.size > T_metric:
-            settled = traj_clean[-T_metric:]
-            amplitude_rick[i, j] = settled.max() - settled.min()
+common = {}
+if model != "Модель Лесли":
+    common['N0'] = st.sidebar.number_input("Начальная популяция N0", min_value=0.0, value=10.0)
+    common['r'] = st.sidebar.number_input("Темп роста r", min_value=0.0, value=0.1)
+    common['K'] = st.sidebar.number_input("Емкость K", min_value=1.0, value=100.0)
 
-# 3) Модель Лесли
-lambda_matrix = np.full((len(s0_vals), len(f0_vals)), np.nan)
-f1_fixed, f2_fixed = f_base[1], f_base[2]
-s1_fixed = s_base[1]
-for i, s0 in enumerate(s0_vals):
-    for j, f0 in enumerate(f0_vals):
-        fertility = [f0, f1_fixed, f2_fixed]
-        survival = [s0, s1_fixed]
-        lambda_matrix[i, j] = simulate_leslie_lambda_max(fertility, survival)
+if model == "Модель с задержкой":
+    tau_values = st.sidebar.multiselect(
+        "Значения задержки (τ)",
+        options=list(range(1, 11)),
+        default=[1, 2]
+    )
 
-# 4) Модель с запаздыванием
-amplitude_delay = np.full((len(tau_vals), len(r_delay_vals)), np.nan)
-for i, tau in enumerate(tau_vals):
-    for j, r_val in enumerate(r_delay_vals):
-        amp = simulate_delay_amplitude(N0_default, r_val, K_delay_fixed, T_sim, tau, T_metric)
-        amplitude_delay[i, j] = amp
 
-# 5) Стохастическая модель
-std_matrix = np.full((len(sigma_vals), len(r_stoch_vals)), np.nan)
-for i, sigma in enumerate(sigma_vals):
-    for j, r_val in enumerate(r_stoch_vals):
-        std_matrix[i, j] = simulate_stochastic_std(N0_default, r_val, K_stoch_fixed, T_stoch, sigma, repeats_stoch)
+elif model == "Модель Лесли":
+    n = st.sidebar.number_input("Число возрастных классов", min_value=2, max_value=10, value=3)
+    with st.sidebar.expander("Коэффициенты рождаемости (f_i)"):
+        fertility = [st.number_input(f"f_{i}", min_value=0.0, value=0.5) for i in range(n)]
+    with st.sidebar.expander("Вероятности выживания (s_i)"):
+        survival = [st.number_input(f"s_{i}", min_value=0.0, max_value=1.0, value=0.8) for i in range(n-1)]
+    with st.sidebar.expander("Начальная популяция по возрастным классам"):
+        N0_vec = [st.number_input(f"N0_{i}", min_value=0.0, value=10.0) for i in range(n)]
 
-def plot_heatmap(matrix, x_vals, y_vals, xlabel, ylabel, title, cmap, cbar_label, num_xticks=8, num_yticks=5):
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(matrix, cmap=cmap, cbar_kws={'label': cbar_label}, 
-                xticklabels=False, yticklabels=False)
-    plt.xlabel(xlabel, fontsize=12)
-    plt.ylabel(ylabel, fontsize=12)
-    plt.title(title, fontsize=14)
+elif model == "Стохастическая симуляция":
+    repeats = st.sidebar.number_input("Число повторений", min_value=1, max_value=200, value=50)
+    sigma_values = st.sidebar.multiselect(
+        "Значения шума (σ)",
+        options=[0.0, 0.05, 0.1, 0.2, 0.5],
+        default=[0.1]
+    )
+    base_model = st.sidebar.selectbox("Основная модель:", ["Логистический рост", "Модель Рикера"])
+    base_sim = simulate_logistic if base_model == "Логистический рост" else simulate_ricker
 
-    xticks_idx = np.linspace(0, len(x_vals) - 1, num_xticks, dtype=int)
-    yticks_idx = np.linspace(0, len(y_vals) - 1, num_yticks, dtype=int)
-    plt.xticks(xticks_idx + 0.5, [f"{x_vals[idx]:.1f}" for idx in xticks_idx], rotation=45, ha='right')
-    plt.yticks(yticks_idx + 0.5, [f"{y_vals[idx]:.1f}" for idx in yticks_idx])
+else:
+    configs_count = st.sidebar.number_input("Количество конфигураций", min_value=1, max_value=5, value=1)
+    config_params = []
+    for i in range(configs_count):
+        st.sidebar.markdown(f"**Конфигурация #{i+1}**")
+        N0_i = st.sidebar.number_input(f"N0 (начальная популяция) #{i+1}", min_value=0.0, value=10.0)
+        r_i = st.sidebar.number_input(f"r (темп роста) #{i+1}", min_value=0.0, value=0.1)
+        K_i = st.sidebar.number_input(f"K (емкость) #{i+1}", min_value=1.0, value=100.0)
+        config_params.append((N0_i, r_i, K_i))
 
-    plt.tight_layout()
+if st.sidebar.button("Симулировать"):
+    with st.spinner("Симуляция..."):
+        if model == "Логистический рост":
+            # Исправление для одной конфигурации
+            if configs_count == 1:
+                traj = simulate_logistic(config_params[0][0], config_params[0][1], config_params[0][2], T)
+                df = pd.DataFrame(traj, columns=["Популяция"])
+                st.subheader("Логистический рост")
+                st.line_chart(df)
+                export_csv(df, 'logistic_growth','Логистический рост',traj)
+            else:
+                all_trajs = {}
+                for idx, (N0_i, r_i, K_i) in enumerate(config_params):
+                    traj = simulate_logistic(N0_i, r_i, K_i, T)
+                    all_trajs[f"Конфигурация #{idx+1} (r={r_i}, K={K_i})"] = traj
+                df = pd.DataFrame(all_trajs)
+                st.subheader("Логистический рост - Несколько конфигураций")
+                st.line_chart(df)
+                export_csv(df, 'logistic_growth_multiple','Логистический рост',traj)
 
-# 1) Логистическая модель
-plot_heatmap(
-    amplitude_log, 
-    x_vals=r_log_vals, 
-    y_vals=K_log_vals, 
-    xlabel="r (темп роста от 0.5 до 2.0)", 
-    ylabel="K (ёмкость среды от 50 до 500)", 
-    title="Логистическая модель: амплитуда(N) от r и K", 
-    cmap="viridis", 
-    cbar_label="Амплитуда"
-)
+        elif model == "Модель Рикера":
+            # Исправление для одной конфигурации
+            if configs_count == 1:
+                traj = simulate_ricker(config_params[0][0], config_params[0][1], config_params[0][2], T)
+                df = pd.DataFrame(traj, columns=["Популяция"])
+                st.subheader("Модель Рикера")
+                st.line_chart(df)
+                export_csv(df, 'ricker_model','Модель Рикера',traj)
+            else:
+                all_trajs = {}
+                for idx, (N0_i, r_i, K_i) in enumerate(config_params):
+                    traj = simulate_ricker(N0_i, r_i, K_i, T)
+                    all_trajs[f"Конфигурация #{idx+1} (r={r_i}, K={K_i})"] = traj
+                df = pd.DataFrame(all_trajs)
+                st.subheader("Модель Рикера - Несколько конфигураций")
+                st.line_chart(df)
+                export_csv(df, 'ricker_model_multiple','Логистический рост',all_trajs)
 
-# 2) Модель Рикера
-plot_heatmap(
-    amplitude_rick, 
-    x_vals=r_rick_vals, 
-    y_vals=K_rick_vals,
-    xlabel="r (темп роста от 0.5 до 2.0)", 
-    ylabel="K (ёмкость среды от 50 до 500)", 
-    title="Модель Рикера: амплитуда(N) от r и K", 
-    cmap="magma", 
-    cbar_label="Амплитуда"
-)
 
-# 3) Модель Лесли
-plot_heatmap(
-    lambda_matrix,
-    x_vals=f0_vals,
-    y_vals=s0_vals,
-    xlabel="f0 (рождаемость класса 0 от 0.4 до 0.6)",
-    ylabel="s0 (выживаемость класса 0 от 0.64 до 0.96)",
-    title="Модель Лесли (n=3): λ_max от f0 и s0",
-    cmap="coolwarm",
-    cbar_label="λ_max"
-)
+        elif model == "Модель с задержкой":
+            if not tau_values:
+                st.warning("Выберите хотя бы одно значение τ")
+            else:
+                all_trajs = {}
+                for tau_i in tau_values:
+                    traj = simulate_delay(common['N0'], common['r'], common['K'], T, tau_i)
+                    all_trajs[f"τ = {tau_i}"] = traj
+                df = pd.DataFrame(all_trajs)
+                st.subheader("Модель с задержкой - Разные τ")
+                st.line_chart(df)
+                export_csv(df, 'delay_model_multiple_tau','Модель с задержкой',traj)
 
-# 4) Модель с запаздыванием
-plot_heatmap(
-    amplitude_delay,
-    x_vals=r_delay_vals,
-    y_vals=tau_vals,
-    xlabel="r (темп роста от 0.5 до 2.0)",
-    ylabel="τ (задержка ∈ {1,2,5})",
-    title=f"Модель с запаздыванием (K = {K_delay_fixed}): амплитуда(N) от r и τ",
-    cmap="plasma",
-    cbar_label="Амплитуда",
-    num_xticks=8,
-    num_yticks=len(tau_vals)
-)
+        elif model == "Модель Лесли":
+            history = simulate_leslie(N0_vec, fertility, survival, T)
+            df = pd.DataFrame(history, columns=[f"Возраст {i}" for i in range(n)])
+            st.subheader("Модель Лесли")
+            st.line_chart(df)
+            L = np.zeros((n, n))
+            L[0, :] = fertility
+            for i in range(1, n):
+                L[i, i - 1] = survival[i - 1]
+            lambda_val = np.max(np.real(np.linalg.eigvals(L)))
+            st.write(f"Доминирующее собственное значение λ = {lambda_val:.3f}")
+            export_csv(df, 'leslie_matrix','Модель Лесли',history)
 
-# 5) Стохастическая модель (на базе Рикера)
-plot_heatmap(
-    std_matrix,
-    x_vals=r_stoch_vals,
-    y_vals=sigma_vals,
-    xlabel="r (темп роста от 0.5 до 2.0)",
-    ylabel="σ (уровень шума ∈ {0.0, 0.1, 0.5})",
-    title=f"Стохастическая модель (Рикер, K = {K_stoch_fixed}): Std(N_T) от r и σ",
-    cmap="cividis",
-    cbar_label="Std(N_T)",
-    num_xticks=8,
-    num_yticks=len(sigma_vals)
-)
+        elif model == "Стохастическая симуляция":
+            if not sigma_values:
+                st.warning("Выберите хотя бы одно значение σ")
+            else:
+                # Для отображения всех траекторий + средних значений
+                fig, ax = plt.subplots(figsize=(10, 6))
+                all_means = {}
 
-plt.show()
+                for sigma in sigma_values:
+                    results = simulate_stochastic(
+                        base_sim,
+                        common['N0'],
+                        common['r'],
+                        common['K'],
+                        T,
+                        sigma=sigma,
+                        repeats=repeats
+                    )
+
+                    # Визуализация всех траекторий
+                    for i in range(repeats):
+                        ax.plot(results[i], alpha=0.1, linewidth=0.8)
+
+                    # Визуализация среднего значения
+                    mean_traj = results.mean(axis=0)
+                    ax.plot(mean_traj, linewidth=2, label=f'σ={sigma}')
+                    all_means[f"σ={sigma}"] = mean_traj
+
+                ax.set_title(f"Стохастическая симуляция ({repeats} траекторий на сигму)")
+                ax.set_xlabel("Время")
+                ax.set_ylabel("Популяция")
+                ax.legend()
+                ax.grid(True, alpha=0.3)
+                st.pyplot(fig)
+
+                # Отображение средних значений в Streamlit
+                st.subheader("Средние траектории для разных уровней шума")
+                means_df = pd.DataFrame(all_means)
+                st.line_chart(means_df)
+
+                # Экспорт средних значений
+                export_csv(means_df, 'stochastic_simulation_means', 'Стохастическая модель',results)
+
+# Footer
+st.sidebar.markdown("---")
+st.sidebar.info("Разработано Лией Ахметовой — v1.0")
