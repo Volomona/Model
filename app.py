@@ -229,7 +229,7 @@ if st.sidebar.button("Симулировать"):
                     )
 
                     # Визуализация всех траекторий
-                     for i in range(repeats):
+                    for i in range(repeats):
                         ax.plot(results[i], alpha=0.1, linewidth=0.8)
 
                     # Визуализация среднего значения
@@ -237,7 +237,7 @@ if st.sidebar.button("Симулировать"):
                     ax.plot(mean_traj, linewidth=2, label=f'σ={sigma}')
                     all_means[f"σ={sigma}"] = mean_traj
 
-              ax.set_title(f"Стохастическая симуляция ({repeats} траекторий на сигму)")
+                ax.set_title(f"Стохастическая симуляция ({repeats} траекторий на сигму)")
                 ax.set_xlabel("Время")
                 ax.set_ylabel("Популяция")
                 ax.legend()
