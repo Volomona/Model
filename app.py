@@ -75,7 +75,7 @@ def export_csv(data, filename,typem,str):
 
     response = g4f.ChatCompletion.create(
         model=g4f.models.gpt_4,
-        messages=[{"role": "user", "content": f"Проанализируй график популяционной модели ничего не предлагай, будто ты научный сотрудник. Тип модели:{typem} вот результат симуляции: {str}"}],
+        messages=[{"role": "user", "content": f"Воспринимай график как данные точек.Проанализируй график или возможно несколько графиков популяционной модели ничего не предлагай, будто ты научный сотрудник. Тип модели:{typem} вот результат симуляции: {str}"}],
         #stream=True
     )  # alternative model setting
     container = st.container(border=True)
@@ -162,7 +162,7 @@ if st.sidebar.button("Симулировать"):
                 df = pd.DataFrame(all_trajs)
                 st.subheader("Логистический рост - Несколько конфигураций")
                 st.line_chart(df)
-                export_csv(df, 'logistic_growth_multiple','Логистический рост',traj)
+                export_csv(df, 'logistic_growth_multiple','Логистический рост',all_traj)
 
         elif model == "Модель Рикера":
             # Исправление для одной конфигурации
@@ -229,7 +229,7 @@ if st.sidebar.button("Симулировать"):
                     )
 
                     # Визуализация всех траекторий
-                    for i in range(repeats):
+                     for i in range(repeats):
                         ax.plot(results[i], alpha=0.1, linewidth=0.8)
 
                     # Визуализация среднего значения
@@ -237,7 +237,7 @@ if st.sidebar.button("Симулировать"):
                     ax.plot(mean_traj, linewidth=2, label=f'σ={sigma}')
                     all_means[f"σ={sigma}"] = mean_traj
 
-                ax.set_title(f"Стохастическая симуляция ({repeats} траекторий на сигму)")
+              ax.set_title(f"Стохастическая симуляция ({repeats} траекторий на сигму)")
                 ax.set_xlabel("Время")
                 ax.set_ylabel("Популяция")
                 ax.legend()
