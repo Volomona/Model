@@ -389,48 +389,44 @@ if st.sidebar.button("Запустить симуляцию", type="primary", ke
                                      f"Общие параметры: N0={params_common['N0']:.1f}, r={params_common['r']:.2f}, K={params_common['K']:.1f}",
                                      f"Число повторений на σ: {stoch_repeats}"]
 
-                # Создаем прогресс бар здесь, чтобы передать его в функцию
                 stoch_progress_bar = st.progress(0, text="Выполнение стохастических симуляций...")
-                total_stoch_iterations = len(stoch_sigma_values) * stoch_repeats
-                completed_stoch_iterations = 0
+                total_stoch_sim_count = len(stoch_sigma_values) * stoch_repeats # Общее число индивидуальных симуляций
+                sims_done_count = 0
 
                 for i, sigma_val in enumerate(stoch_sigma_values):
-                    # Обертка для обновления общего прогресс-бара
-                    def update_overall_progress(current_iter_in_sigma_batch):
-                        nonlocal completed_stoch_iterations
-                        completed_stoch_iterations = (i * stoch_repeats) + current_iter_in_sigma_batch
-                        stoch_progress_bar.progress(completed_stoch_iterations / total_stoch_iterations, 
-                                                    text=f"Симуляция для σ={sigma_val:.2f} ({current_iter_in_sigma_batch}/{stoch_repeats})")
-
-                    # Передача "обертки" не сработает напрямую с @st.cache_data, если функция кэшируется
-                    # Для простоты уберем передачу прогресс-бара в кэшируемую функцию и будем обновлять его здесь
-                    
+                    # Выполняем симуляции для текущего sigma_val
+                    # _progress_bar_ref в simulate_stochastic больше не используется для кэшируемой функции
                     current_sigma_runs = simulate_stochastic(
-                        stoch_base_sim_func, params_common['N0'], params_common['r'], params_common['K'], 
-                        T_sim_steps, sigma_val, stoch_repeats, _progress_bar_ref=None # Убрал progress_bar_ref для кэширования
+                        stoch_base_sim_func, params_common['N0'], params_common['r'], params_common['K'],
+                        T_sim_steps, sigma_val, stoch_repeats, _progress_bar_ref=None
                     )
-                    # Обновление прогресс-бара после каждой пачки симуляций для sigma
-                    completed_stoch_iterations += stoch_repeats
-                    stoch_progress_bar.progress(completed_stoch_iterations / total_stoch_iterations,
-                                                text=f"Завершены симуляции для σ={sigma_val:.2f}")
 
-
+                    # Обновляем прогресс бар после завершения всех 'repeats' для текущего sigma
+                    sims_done_count += stoch_repeats 
+                    progress_percentage = sims_done_count / total_stoch_sim_count
+                    stoch_progress_bar.progress(progress_percentage,
+                                                text=f"Обработка σ={sigma_val:.3f} ({sims_done_count}/{total_stoch_sim_count} симуляций)")
+                    
+                    # Отрисовка траекторий для текущего sigma
                     for run_idx in range(stoch_repeats):
-                        ax.plot(current_sigma_runs[run_idx, :], color=f"C{i % 10}", alpha=0.05 + 0.2/stoch_repeats, linewidth=0.8) # Тоньше и прозрачнее
+                        # Используем i % 10 для циклического выбора цвета из стандартной палитры Matplotlib (10 цветов)
+                        ax.plot(current_sigma_runs[run_idx, :], color=f"C{i % 10}", alpha=max(0.02, 0.2/stoch_repeats), linewidth=0.7)
                     
                     mean_traj = np.mean(current_sigma_runs, axis=0)
-                    label = f"Среднее (σ={sigma_val:.2f})"
+                    label = f"Среднее (σ={sigma_val:.3f})" # Увеличил точность для sigma
                     all_means_dict[label] = mean_traj
-                    ax.plot(mean_traj, color=f"C{i % 10}", linewidth=2, label=label)
-                    sim_details_parts.append(f"Для σ={sigma_val:.2f}: показаны {stoch_repeats} траекторий и их среднее.")
+                    ax.plot(mean_traj, color=f"C{i % 10}", linewidth=2.5, label=label) # Ярче и толще средняя линия
+                    sim_details_parts.append(f"Для σ={sigma_val:.3f}: показаны {stoch_repeats} траекторий и их среднее.")
                 
-                stoch_progress_bar.empty() # Убрать прогресс-бар
+                stoch_progress_bar.empty() # Убрать прогресс-бар после завершения всех sigma
 
                 data_to_export_df = pd.DataFrame(all_means_dict)
-                st.subheader("Средние траектории по уровням шума (σ):")
-                st.line_chart(data_to_export_df) # Отдельный график для средних
+                if not data_to_export_df.empty:
+                    st.subheader("Средние траектории по уровням шума (σ):")
+                    st.line_chart(data_to_export_df) # Отдельный график для средних
+                
                 simulation_details_for_gpt = "\n".join(sim_details_parts)
-                data_as_string_for_gpt = data_to_export_df.to_string(max_rows=15, max_cols=5)
+                data_as_string_for_gpt = data_to_export_df.to_string(max_rows=15, max_cols=7) if not data_to_export_df.empty else "Нет данных для отображения (возможно, все траектории разошлись или не было симуляций)."
 
 
     # --- Общее для всех графиков (кроме тех, что строятся отдельно) ---
