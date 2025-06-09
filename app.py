@@ -5,7 +5,6 @@ import logging
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import streamlit as st
 
 try:
     import streamlit as st
@@ -59,7 +58,7 @@ def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100)
         progress.progress((i + 1) / repeats)
     return np.array(runs)
 
-def export_csv(data, filename,typem,str):
+def export_csv(data, filename):
     if isinstance(data, np.ndarray):
         df = pd.DataFrame(data)
     else:
@@ -71,17 +70,6 @@ def export_csv(data, filename,typem,str):
         file_name=f"{filename}.csv",
         mime="text/csv"
     )
-    import g4f
-
-    response = g4f.ChatCompletion.create(
-        model=g4f.models.gpt_4,
-        messages=[{"role": "user", "content": f"Проанализируй график популяционной модели ничего не предлагай, будто ты научный сотрудник. Тип модели:{typem} вот результат симуляции: {str}"}],
-        #stream=True
-    )  # alternative model setting
-    container = st.container(border=True)
-    container.write("Анализ полученных данных:")
-    container.write(response)
-
 
 st.set_page_config(page_title="Population Dynamics Simulator", layout="wide")
 st.title("🌱 Симулятор Популяционной Динамики")
@@ -113,7 +101,6 @@ if model == "Модель с задержкой":
         options=list(range(1, 11)),
         default=[1, 2]
     )
-
 
 elif model == "Модель Лесли":
     n = st.sidebar.number_input("Число возрастных классов", min_value=2, max_value=10, value=3)
@@ -153,7 +140,7 @@ if st.sidebar.button("Симулировать"):
                 df = pd.DataFrame(traj, columns=["Популяция"])
                 st.subheader("Логистический рост")
                 st.line_chart(df)
-                export_csv(df, 'logistic_growth','Логистический рост',traj)
+                export_csv(df, 'logistic_growth')
             else:
                 all_trajs = {}
                 for idx, (N0_i, r_i, K_i) in enumerate(config_params):
@@ -162,7 +149,7 @@ if st.sidebar.button("Симулировать"):
                 df = pd.DataFrame(all_trajs)
                 st.subheader("Логистический рост - Несколько конфигураций")
                 st.line_chart(df)
-                export_csv(df, 'logistic_growth_multiple','Логистический рост',traj)
+                export_csv(df, 'logistic_growth_multiple')
 
         elif model == "Модель Рикера":
             # Исправление для одной конфигурации
@@ -171,7 +158,7 @@ if st.sidebar.button("Симулировать"):
                 df = pd.DataFrame(traj, columns=["Популяция"])
                 st.subheader("Модель Рикера")
                 st.line_chart(df)
-                export_csv(df, 'ricker_model','Модель Рикера',traj)
+                export_csv(df, 'ricker_model')
             else:
                 all_trajs = {}
                 for idx, (N0_i, r_i, K_i) in enumerate(config_params):
@@ -180,8 +167,7 @@ if st.sidebar.button("Симулировать"):
                 df = pd.DataFrame(all_trajs)
                 st.subheader("Модель Рикера - Несколько конфигураций")
                 st.line_chart(df)
-                export_csv(df, 'ricker_model_multiple','Логистический рост',all_trajs)
-
+                export_csv(df, 'ricker_model_multiple')
 
         elif model == "Модель с задержкой":
             if not tau_values:
@@ -194,7 +180,7 @@ if st.sidebar.button("Симулировать"):
                 df = pd.DataFrame(all_trajs)
                 st.subheader("Модель с задержкой - Разные τ")
                 st.line_chart(df)
-                export_csv(df, 'delay_model_multiple_tau','Модель с задержкой',traj)
+                export_csv(df, 'delay_model_multiple_tau')
 
         elif model == "Модель Лесли":
             history = simulate_leslie(N0_vec, fertility, survival, T)
@@ -204,10 +190,10 @@ if st.sidebar.button("Симулировать"):
             L = np.zeros((n, n))
             L[0, :] = fertility
             for i in range(1, n):
-                L[i, i - 1] = survival[i - 1]
+                L[i, i-1] = survival[i-1]
             lambda_val = np.max(np.real(np.linalg.eigvals(L)))
             st.write(f"Доминирующее собственное значение λ = {lambda_val:.3f}")
-            export_csv(df, 'leslie_matrix','Модель Лесли',history)
+            export_csv(df, 'leslie_matrix')
 
         elif model == "Стохастическая симуляция":
             if not sigma_values:
@@ -216,7 +202,7 @@ if st.sidebar.button("Симулировать"):
                 # Для отображения всех траекторий + средних значений
                 fig, ax = plt.subplots(figsize=(10, 6))
                 all_means = {}
-
+                
                 for sigma in sigma_values:
                     results = simulate_stochastic(
                         base_sim,
@@ -227,30 +213,30 @@ if st.sidebar.button("Симулировать"):
                         sigma=sigma,
                         repeats=repeats
                     )
-
+                    
                     # Визуализация всех траекторий
                     for i in range(repeats):
                         ax.plot(results[i], alpha=0.1, linewidth=0.8)
-
+                    
                     # Визуализация среднего значения
                     mean_traj = results.mean(axis=0)
                     ax.plot(mean_traj, linewidth=2, label=f'σ={sigma}')
                     all_means[f"σ={sigma}"] = mean_traj
-
+                
                 ax.set_title(f"Стохастическая симуляция ({repeats} траекторий на сигму)")
                 ax.set_xlabel("Время")
                 ax.set_ylabel("Популяция")
                 ax.legend()
                 ax.grid(True, alpha=0.3)
                 st.pyplot(fig)
-
+                
                 # Отображение средних значений в Streamlit
                 st.subheader("Средние траектории для разных уровней шума")
                 means_df = pd.DataFrame(all_means)
                 st.line_chart(means_df)
-
+                
                 # Экспорт средних значений
-                export_csv(means_df, 'stochastic_simulation_means', 'Стохастическая модель',results)
+                export_csv(means_df, 'stochastic_simulation_means')
 
 # Footer
 st.sidebar.markdown("---")
