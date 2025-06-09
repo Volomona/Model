@@ -41,13 +41,11 @@ def simulate_leslie(N0_vec: list, fertility: list, survival: list, T: int) -> np
     return np.array(history)
 
 def simulate_delay(N0: float, r: float, K: float, T: int, tau: int) -> np.ndarray:
-    # Создаем историю с начальными значениями
     Ns = [N0] * (tau + 1)
-    # Симулируем T шагов
     for t in range(tau, T + tau):
         N_next = Ns[t] * np.exp(r * (1 - Ns[t - tau] / K))
         Ns.append(N_next)
-    return np.array(Ns[:T + 1])  # Возвращаем только T+1 точек
+    return np.array(Ns[:T + 1])
 
 def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100) -> np.ndarray:
     runs = []
@@ -59,7 +57,7 @@ def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100)
         progress.progress((i + 1) / repeats)
     return np.array(runs)
 
-def export_csv(data, filename,typem,str):
+def export_csv(data, filename, model_type: str, simulation_params: str):
     if isinstance(data, np.ndarray):
         df = pd.DataFrame(data)
     else:
@@ -71,22 +69,24 @@ def export_csv(data, filename,typem,str):
         file_name=f"{filename}.csv",
         mime="text/csv"
     )
+    
+    # Обрезаем длинные данные для GPT-анализа
+    data_for_gpt_str = str(data[:10]) + "..." if len(str(data)) > 100 else str(data)
+    
     import g4f
-
     response = g4f.ChatCompletion.create(
         model=g4f.models.gpt_4,
         messages=[{"role": "user", "content": f"Вы - научный сотрудник, анализирующий данные моделирования популяционной динамики. "
                     f"Проанализируйте следующие результаты симуляции.\n"
-                    f"Тип модели: {model_type_str}\n"
-                    f"Параметры симуляции: {simulation_params_str}\n"
-                    f"Данные траектории (или их сводка):\n{data_for_gpt_str_truncated}\n\n"
-                    f"Ваш анализ (формат Markdown, без запроса уточнений, как будто это единственный ответ):"}],
-        #stream=True
-    )  # alternative model setting
+                    f"Тип модели: {model_type}\n"
+                    f"Параметры симуляции: {simulation_params}\n"
+                    f"Данные траектории (первые 10 точек):\n{data_for_gpt_str}\n\n"
+                    f"Ваш анализ (формат Markdown, без запроса уточнений):"}],
+    )
+    
     container = st.container(border=True)
     container.write("Анализ полученных данных:")
     container.write(response)
-
 
 st.set_page_config(page_title="Population Dynamics Simulator", layout="wide")
 st.title("🌱 Симулятор Популяционной Динамики")
@@ -98,8 +98,8 @@ model_info = {
     "Модель с задержкой": "Модель Рикера с запаздыванием: $N_{t+1} = N_t \exp(r(1 - N_{t-\tau}/K))$.",
     "Стохастическая симуляция": "Добавляет аддитивный гауссов шум к детерминированной модели.",
 }
-st.sidebar.info("Выберите модель и установите параметры ниже.")
 
+st.sidebar.info("Выберите модель и установите параметры ниже.")
 model = st.sidebar.selectbox("Выберите модель:", list(model_info.keys()))
 st.sidebar.caption(model_info[model])
 
@@ -118,7 +118,6 @@ if model == "Модель с задержкой":
         options=list(range(1, 11)),
         default=[1, 2]
     )
-
 
 elif model == "Модель Лесли":
     n = st.sidebar.number_input("Число возрастных классов", min_value=2, max_value=10, value=3)
@@ -157,8 +156,9 @@ if st.sidebar.button("Симулировать"):
                 df = pd.DataFrame(traj, columns=["Популяция"])
                 st.subheader("Логистический рост")
                 st.line_chart(df)
-                export_csv(df, 'logistic_growth', 'Логистический рост',
-                           f"Одна траектория: N0={config_params[0][0]}, r={config_params[0][1]}, K={config_params[0][2]}\nДанные:\n{traj}")
+                export_csv(df, 'logistic_growth', 
+                          model_type='Логистический рост',
+                          simulation_params=f"N0={config_params[0][0]}, r={config_params[0][1]}, K={config_params[0][2]}")
             else:
                 all_trajs = {}
                 config_descriptions = []
@@ -169,9 +169,9 @@ if st.sidebar.button("Симулировать"):
                 df = pd.DataFrame(all_trajs)
                 st.subheader("Логистический рост - Несколько конфигураций")
                 st.line_chart(df)
-                export_csv(df, 'logistic_growth_multiple', 'Логистический рост',
-                           f"Множественные траектории:\n{'\n'.join(config_descriptions)}\nДанные:\n{all_trajs}")
-
+                export_csv(df, 'logistic_growth_multiple',
+                          model_type='Логистический рост (множественные конфигурации)',
+                          simulation_params="\n".join(config_descriptions))
 
         elif model == "Модель Рикера":
             if configs_count == 1:
@@ -179,8 +179,9 @@ if st.sidebar.button("Симулировать"):
                 df = pd.DataFrame(traj, columns=["Популяция"])
                 st.subheader("Модель Рикера")
                 st.line_chart(df)
-                export_csv(df, 'ricker_model', 'Модель Рикера',
-                           f"Одна траектория: N0={config_params[0][0]}, r={config_params[0][1]}, K={config_params[0][2]}\nДанные:\n{traj}")
+                export_csv(df, 'ricker_model',
+                          model_type='Модель Рикера',
+                          simulation_params=f"N0={config_params[0][0]}, r={config_params[0][1]}, K={config_params[0][2]}")
             else:
                 all_trajs = {}
                 config_descriptions = []
@@ -191,9 +192,9 @@ if st.sidebar.button("Симулировать"):
                 df = pd.DataFrame(all_trajs)
                 st.subheader("Модель Рикера - Несколько конфигураций")
                 st.line_chart(df)
-                export_csv(df, 'ricker_model_multiple', 'Модель Рикера',
-                           f"Множественные траектории:\n{'\n'.join(config_descriptions)}\nДанные:\n{all_trajs}")
-
+                export_csv(df, 'ricker_model_multiple',
+                          model_type='Модель Рикера (множественные конфигурации)',
+                          simulation_params="\n".join(config_descriptions))
 
         elif model == "Модель с задержкой":
             if not tau_values:
@@ -204,13 +205,13 @@ if st.sidebar.button("Симулировать"):
                 for tau_i in tau_values:
                     traj = simulate_delay(common['N0'], common['r'], common['K'], T, tau_i)
                     all_trajs[f"τ = {tau_i}"] = traj
-                    tau_descriptions.append(
-                        f"Задержка τ={tau_i} при N0={common['N0']}, r={common['r']}, K={common['K']}")
+                    tau_descriptions.append(f"τ={tau_i} при N0={common['N0']}, r={common['r']}, K={common['K']}")
                 df = pd.DataFrame(all_trajs)
                 st.subheader("Модель с задержкой - Разные τ")
                 st.line_chart(df)
-                export_csv(df, 'delay_model_multiple_tau', 'Модель с задержкой',
-                           f"Траектории с разными задержками:\n{'\n'.join(tau_descriptions)}\nДанные:\n{all_trajs}")
+                export_csv(df, 'delay_model_multiple_tau',
+                          model_type='Модель с задержкой',
+                          simulation_params="\n".join(tau_descriptions))
 
         elif model == "Модель Лесли":
             history = simulate_leslie(N0_vec, fertility, survival, T)
@@ -223,8 +224,9 @@ if st.sidebar.button("Симулировать"):
                 L[i, i - 1] = survival[i - 1]
             lambda_val = np.max(np.real(np.linalg.eigvals(L)))
             st.write(f"Доминирующее собственное значение λ = {lambda_val:.3f}")
-            export_csv(df, 'leslie_matrix','Модель Лесли',history)
-
+            export_csv(df, 'leslie_matrix',
+                      model_type='Модель Лесли',
+                      simulation_params=f"{n} возрастных классов, fertility={fertility}, survival={survival}")
 
         elif model == "Стохастическая симуляция":
             if not sigma_values:
@@ -255,11 +257,10 @@ if st.sidebar.button("Симулировать"):
                 means_df = pd.DataFrame(all_means)
                 st.subheader("Средние траектории для разных уровней шума")
                 st.line_chart(means_df)
-                export_csv(means_df, 'stochastic_simulation_means', 'Стохастическая модель',
-                           f"Стохастические траектории с параметрами:\n{'\n'.join(sigma_descriptions)}\n"
-                           f"Средние значения:\n{all_means}\n"
-                           f"Базовые параметры: N0={common['N0']}, r={common['r']}, K={common['K']}")
+                export_csv(means_df, 'stochastic_simulation_means',
+                          model_type='Стохастическая модель',
+                          simulation_params=f"Базовые параметры: N0={common['N0']}, r={common['r']}, K={common['K']}\n" +
+                          "\n".join(sigma_descriptions))
 
-# Footer
 st.sidebar.markdown("---")
-st.sidebar.info("Разработано Лией Ахметовой") 
+st.sidebar.info("Разработано Лией Ахметовой")
