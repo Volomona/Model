@@ -6,7 +6,9 @@ import matplotlib.pyplot as plt
 import streamlit as st
 import g4f
 from scipy.optimize import minimize
-import pdfkit
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+import io
 
 # -------------------------------
 # Настройка логирования
@@ -65,17 +67,17 @@ def simulate_leslie(N0_vec, fertility, survival, T):
     n = len(N0_vec)
     N = np.array(N0_vec, dtype=float)
     hist = [N.copy()]
-    L = np.zeros((n,n))
-    L[0,:] = fertility
-    for i in range(1,n):
-        L[i,i-1] = survival[i-1]
+    L = np.zeros((n, n))
+    L[0, :] = fertility
+    for i in range(1, n):
+        L[i, i-1] = survival[i-1]
     for _ in range(T):
         N = L.dot(N)
         hist.append(N.copy())
     return np.array(hist)
 
 def simulate_delay(N0, r, K, T, tau):
-    Ns = [N0] * (tau+1)
+    Ns = [N0] * (tau + 1)
     for t in range(tau, T+tau):
         Ns.append(Ns[t] * np.exp(r * (1 - Ns[t-tau] / K)))
     return np.array(Ns[:T+1])
@@ -126,10 +128,21 @@ def optimize_parameters(model, data, guess, bounds, T):
     return minimize(loss, guess, bounds=bounds)
 
 def generate_pdf_report(model_name, ts):
-    html = f"<h1>Отчет по модели {model_name}</h1><pre>{ts[:10]}</pre>"
-    path = "report.pdf"
-    pdfkit.from_string(html, path)
-    return path
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(50, height-50, f"Отчет по модели: {model_name}")
+    c.setFont("Helvetica", 12)
+    text = c.beginText(50, height-100)
+    text.textLine("Первые 10 значений:")
+    for val in ts.flatten()[:10]:
+        text.textLine(f"  {val:.3f}")
+    c.drawText(text)
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+    return buffer
 
 # -------------------------------
 # Streamlit UI
@@ -145,68 +158,96 @@ models = {
     "С задержкой": simulate_delay,
     "Стохастическая": simulate_stochastic
 }
+
 model = st.sidebar.selectbox("Модель:", list(models.keys()))
 T = st.sidebar.slider("T", 10, 500, 100)
 
-# Input collection
+# Сбор входных параметров
 if model == "Гибридная":
-    n = st.sidebar.number_input("классов", 2, 10, 3)
-    N0v = [st.sidebar.number_input(f"N0_{i}", 0.0, 1000.0, 10.0) for i in range(n)]
-    fert = [st.sidebar.number_input(f"f_{i}", 0.0, 1.0, 0.5) for i in range(n)]
-    surv = [st.sidebar.number_input(f"s_{i}", 0.0, 1.0, 0.8) for i in range(n-1)]
-    df = [st.sidebar.number_input(f"df_{i}", 0, 5, 1) for i in range(n)]
-    ds = [st.sidebar.number_input(f"ds_{i}", 0, 5, 1) for i in range(n-1)]
-    mig = [st.sidebar.number_input(f"m_{i}", 0.0, 0.5, 0.1) for i in range(n)]
+    n = st.sidebar.number_input("число классов", 2, 10, 3)
+    N0_vec = [st.sidebar.number_input(f"N0_{i}", 0.0, 1000.0, 10.0) for i in range(n)]
+    fert_base = [st.sidebar.number_input(f"f_{i}", 0.0, 1.0, 0.5) for i in range(n)]
+    surv_base = [st.sidebar.number_input(f"s_{i}", 0.0, 1.0, 0.8) for i in range(n-1)]
+    delay_fert = [st.sidebar.number_input(f"df_{i}", 0, 5, 1) for i in range(n)]
+    delay_surv = [st.sidebar.number_input(f"ds_{i}", 0, 5, 1) for i in range(n-1)]
+    migration_rates = [st.sidebar.number_input(f"m_{i}", 0.0, 0.5, 0.1) for i in range(n)]
     K = st.sidebar.number_input("K", 1.0, 1000.0, 100.0)
-    rf = st.sidebar.number_input("rf", 0.0, 1.0, 0.1)
-    rs = st.sidebar.number_input("rs", 0.0, 1.0, 0.05)
-    ee = st.sidebar.slider("env", -1.0, 1.0, 0.2)
-    si = st.sidebar.slider("sto", 0.0, 1.0, 0.1)
-    if st.sidebar.button("Sim"):
-        res = models[model](N0v, T, fert, surv, K, rf, rs, df, ds, mig, ee, si)
+    r_fert = st.sidebar.number_input("r_fert", 0.0, 1.0, 0.1)
+    r_surv = st.sidebar.number_input("r_surv", 0.0, 1.0, 0.05)
+    env_effect = st.sidebar.slider("env_effect", -1.0, 1.0, 0.2)
+    stoch_intensity = st.sidebar.slider("stoch_intensity", 0.0, 1.0, 0.1)
+
+    if st.sidebar.button("Симулировать"):
+        res = models[model](
+            N0_vec, T, fert_base, surv_base, K,
+            r_fert, r_surv, delay_fert, delay_surv,
+            migration_rates, env_effect, stoch_intensity
+        )
+        st.session_state['res'] = res
+        st.session_state['model_name'] = model
 
 elif model in ["Логистический", "Рикер"]:
     N0 = st.sidebar.number_input("N0", 0.0, 1000.0, 10.0)
     r = st.sidebar.number_input("r", 0.0, 5.0, 0.5)
     K = st.sidebar.number_input("K", 1.0, 1000.0, 100.0)
-    if st.sidebar.button("Sim"):
+    if st.sidebar.button("Симулировать"):
         res = models[model](N0, r, K, T)
+        st.session_state['res'] = res
+        st.session_state['model_name'] = model
 
 elif model == "С задержкой":
     N0 = st.sidebar.number_input("N0", 0.0, 1000.0, 10.0)
     r = st.sidebar.number_input("r", 0.0, 5.0, 0.5)
     K = st.sidebar.number_input("K", 1.0, 1000.0, 100.0)
     tau = st.sidebar.number_input("tau", 1, 10, 1)
-    if st.sidebar.button("Sim"):
+    if st.sidebar.button("Симулировать"):
         res = models[model](N0, r, K, T, tau)
+        st.session_state['res'] = res
+        st.session_state['model_name'] = model
 
 elif model == "Лесли":
-    n = st.sidebar.number_input("классов", 2, 10, 3)
-    N0v = [st.sidebar.number_input(f"N0_{i}", 0.0, 1000.0, 10.0) for i in range(n)]
-    fert = [st.sidebar.number_input(f"f_{i}", 0.0, 1.0, 0.5) for i in range(n)]
-    surv = [st.sidebar.number_input(f"s_{i}", 0.0, 1.0, 0.8) for i in range(n-1)]
-    if st.sidebar.button("Sim"):
-        res = models[model](N0v, fert, surv, T)
+    n = st.sidebar.number_input("число классов", 2, 10, 3)
+    N0_vec = [st.sidebar.number_input(f"N0_{i}", 0.0, 1000.0, 10.0) for i in range(n)]
+    fertility = [st.sidebar.number_input(f"f_{i}", 0.0, 1.0, 0.5) for i in range(n)]
+    survival = [st.sidebar.number_input(f"s_{i}", 0.0, 1.0, 0.8) for i in range(n-1)]
+    if st.sidebar.button("Симулировать"):
+        res = models[model](N0_vec, fertility, survival, T)
+        st.session_state['res'] = res
+        st.session_state['model_name'] = model
 
-else:
+else:  # Стохастическая
     N0 = st.sidebar.number_input("N0", 0.0, 1000.0, 10.0)
     r = st.sidebar.number_input("r", 0.0, 5.0, 0.5)
     K = st.sidebar.number_input("K", 1.0, 1000.0, 100.0)
     sigma = st.sidebar.number_input("sigma", 0.0, 1.0, 0.1)
     repeats = st.sidebar.number_input("repeats", 1, 200, 50)
-    if st.sidebar.button("Sim"):
+    if st.sidebar.button("Симулировать"):
         res = models[model](simulate_logistic, N0, r, K, T, sigma, repeats)
+        st.session_state['res'] = res
+        st.session_state['model_name'] = model
 
-# Display results
-if 'res' in locals():
-    st.subheader(f"Результаты: {model}")
+# -------------------------------
+# Display and Export
+# -------------------------------
+if 'res' in st.session_state:
+    res = st.session_state['res']
+    model_name = st.session_state['model_name']
+
+    st.subheader(f"Результаты: {model_name}")
     st.line_chart(pd.DataFrame(res))
+
     st.write("Режим:", analyze_behavior(res.flatten()))
-    if st.sidebar.button("Скачать CSV"):
-        export_csv(res, model, str(res[:10]), "")
+
+    st.download_button(
+        label="Скачать данные CSV",
+        data=pd.DataFrame(res).to_csv(index=False).encode('utf-8'),
+        file_name=f"{model_name}.csv",
+        mime="text/csv"
+    )
+
     try:
         fig = sensitivity_heatmap(
-            models[model],
+            models[model_name],
             {'r': (0.1, 1, 20), 'K': (10, 200, 20)},
             {'N0': locals().get('N0'), 'r': locals().get('r'), 'K': locals().get('K')},
             T
@@ -214,19 +255,25 @@ if 'res' in locals():
         st.pyplot(fig)
     except Exception:
         st.warning("Невозможно построить тепловую карту для этой модели.")
+
     if st.sidebar.checkbox("Оптимизация параметров"):
-        # Здесь можно реализовать загрузку CSV и вызов optimize_parameters
-        pass
-    if st.sidebar.button("Сформировать PDF отчет"):
-        report_path = generate_pdf_report(model, res)
-        with open(report_path, "rb") as f:
-            pdf_bytes = f.read()
+        uploaded = st.sidebar.file_uploader("Загрузите CSV с данными", type="csv")
+        if uploaded:
+            data = pd.read_csv(uploaded).iloc[:, -1].values
+            res_opt = optimize_parameters(
+                lambda n0_, r_, k_, T_: models[model_name](n0_, r_, k_, T_),
+                data, [locals().get('N0', 10), locals().get('r', 0.5), locals().get('K', 100)],
+                [(0, None), (0, None), (0, None)], T
+            )
+            st.write("Оптимальные параметры:", res_opt.x)
+
+    if st.sidebar.button("Скачать PDF отчет"):
+        pdf_buffer = generate_pdf_report(model_name, res)
         st.download_button(
-            label="Скачать PDF отчёт",
-            data=pdf_bytes,
-            file_name=report_path,
+            label="Скачать PDF",
+            data=pdf_buffer,
+            file_name=f"{model_name}_report.pdf",
             mime="application/pdf"
         )
-        st.success(f"Отчёт сформирован: {report_path}")
 
 st.sidebar.info("Разработано Лией Ахметовой")
