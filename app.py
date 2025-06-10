@@ -103,7 +103,7 @@ def analyze_behavior(ts):
     return "Хаос"
 
 def sensitivity_heatmap(model, param_ranges, fixed, T):
-    p1, p2 = list(param_ranges)
+    p1, p2 = list(param_ranges.keys())
     v1 = np.linspace(*param_ranges[p1])
     v2 = np.linspace(*param_ranges[p2])
     M = np.zeros((len(v1), len(v2)))
@@ -217,8 +217,16 @@ if 'res' in locals():
     if st.sidebar.checkbox("Оптимизация параметров"):
         # Здесь можно реализовать загрузку CSV и вызов optimize_parameters
         pass
-    if st.sidebar.button("PDF отчёт"):
-        path = generate_pdf_report(model, res)
-        st.success(f"Отчёт сохранён: {path}")
+    if st.sidebar.button("Сформировать PDF отчет"):
+        report_path = generate_pdf_report(model, res)
+        with open(report_path, "rb") as f:
+            pdf_bytes = f.read()
+        st.download_button(
+            label="Скачать PDF отчёт",
+            data=pdf_bytes,
+            file_name=report_path,
+            mime="application/pdf"
+        )
+        st.success(f"Отчёт сформирован: {report_path}")
 
 st.sidebar.info("Разработано Лией Ахметовой")
