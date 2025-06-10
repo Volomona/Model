@@ -1,32 +1,52 @@
-# -------------------------------
-# Streamlit UI
-# -------------------------------
-import streamlit as st
-import sys
-import logging
-import numpy as np
-import pandas as pd
+import io
+from scipy.optimize import minimize
 import matplotlib.pyplot as plt
-import g4f
-from sensitivity import sensitivity_heatmap
-from analysis import analyze_behavior, optimize_parameters
-from report import generate_pdf_report
+import pdfkit
 
-# Проверка наличия Streamlit
-try:
-    import streamlit as st
-except ModuleNotFoundError:
-    sys.exit("Error: Streamlit is not available. Please install and run locally: `streamlit run app.py`.")
+def analyze_behavior(time_series: np.ndarray) -> str:
+    std = np.std(time_series[-int(len(time_series)/2):])
+    if std < 1e-3:
+        return "Стационарность"
+    peaks = np.sum(np.diff(np.sign(np.diff(time_series))) < 0)
+    if peaks > 5:
+        return "Периодические колебания"
+    return "Хаос"
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+def sensitivity_heatmap(model_func, param_ranges: dict, fixed_args: dict, T: int):
+    p1, p2 = list(param_ranges.keys())
+    v1 = np.linspace(*param_ranges[p1])
+    v2 = np.linspace(*param_ranges[p2])
+    amp = np.zeros((len(v1), len(v2)))
+    for i, x in enumerate(v1):
+        for j, y in enumerate(v2):
+            args = fixed_args.copy()
+            args[p1], args[p2] = x, y
+            ts = model_func(*args.values(), T)
+            amp[i,j] = ts.max() - ts.min()
+    fig, ax = plt.subplots()
+    c = ax.pcolormesh(v1, v2, amp.T, shading='auto')
+    fig.colorbar(c, ax=ax)
+    ax.set_xlabel(p1)
+    ax.set_ylabel(p2)
+    return fig
 
-# Настройка страницы
-st.set_page_config(page_title="Population Dynamics Simulator", layout="wide")
-st.title("🌱 Симулятор Популяционной Динамики с Анализом")
+def optimize_parameters(model_func, data: np.ndarray, initial_guess: list, bounds: list, T: int):
+    def loss(params):
+        sim = model_func(params[0], params[1], params[2], T)
+        return np.mean((sim - data)**2)
+    res = minimize(loss, initial_guess, bounds=bounds)
+    return res
 
-# Функции симуляции
-# ... (здесь ваши simulate_logistic, simulate_ricker, simulate_leslie, simulate_delay, simulate_stochastic)
+def generate_pdf_report(model_name: str, ts: np.ndarray):
+    html = f"""
+    <h1>Отчёт по модели: {model_name}</h1>
+    <p>Первые 10 значений:</p>
+    <pre>{ts[:10]}</pre>
+    <p>Размерность массива: {ts.shape}</p>
+    """
+    output_path = "population_report.pdf"
+    pdfkit.from_string(html, output_path)
+    return output_path
 
 # Словарь моделей
 models = {
