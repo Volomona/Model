@@ -23,25 +23,74 @@ def simulate_logistic(N0: float, r: float, K: float, T: int) -> np.ndarray:
         Ns.append(Ns[-1] + r * Ns[-1] * (1 - Ns[-1] / K))
     return np.array(Ns)
 
-# ... (other simulate_* functions unchanged) ...
-
 def simulate_ricker(N0: float, r: float, K: float, T: int) -> np.ndarray:
     Ns = [N0]
     for _ in range(T):
         Ns.append(Ns[-1] * np.exp(r * (1 - Ns[-1] / K)))
     return np.array(Ns)
 
+def simulate_leslie(N0_vec: list, fertility: list, survival: list, T: int) -> np.ndarray:
+    n = len(N0_vec)
+    N = np.array(N0_vec, dtype=float)
+    history = [N.copy()]
+    L = np.zeros((n, n))
+    L[0, :] = fertility
+    for i in range(1, n):
+        L[i, i-1] = survival[i-1]
+    for _ in range(T):
+        N = L.dot(N)
+        history.append(N.copy())
+    return np.array(history)
+
+def simulate_delay(N0: float, r: float, K: float, T: int, tau: int) -> np.ndarray:
+    Ns = [N0] * (tau + 1)
+    for t in range(tau, T + tau):
+        N_next = Ns[t] * np.exp(r * (1 - Ns[t - tau] / K))
+        Ns.append(N_next)
+    return np.array(Ns[:T + 1])
+
+def simulate_stochastic(base_sim, N0: float, r: float, K: float, T: int, sigma: float = 0.1, repeats: int = 100) -> np.ndarray:
+    runs = []
+    progress = st.progress(0)
+    for i in range(repeats):
+        traj = base_sim(N0, r, K, T)
+        noise = np.random.normal(0, sigma, size=traj.shape)
+        runs.append(np.clip(traj + noise, 0, None))
+        progress.progress((i + 1) / repeats)
+    return np.array(runs)
+
+# -------------------------------
+# Export & GPT4 analysis
+# -------------------------------
+def export_csv(data, filename, model_type: str, simulation_params: str):
+    df = pd.DataFrame(data)
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="Скачать данные CSV",
+        data=csv,
+        file_name=f"{filename}.csv",
+        mime="text/csv"
+    )
+    # GPT-4 аналитика
+    import g4f
+    snippet = str(data[:10]) + "..." if len(data) > 10 else str(data)
+    response = g4f.ChatCompletion.create(
+        model=g4f.models.gpt_4,
+        messages=[{"role": "user", "content": f"Вы - научный сотрудник. Проанализируйте результаты симуляции."
+                    f"\nТип модели: {model_type}"
+                    f"\nПараметры: {simulation_params}"
+                    f"\nДанные (первые 10 точек): {snippet}"}]
+    )
+    st.subheader("Анализ данных GPT-4:")
+    st.write(response)
+
 # -------------------------------
 # Analysis functions
 # -------------------------------
 def analyze_behavior(time_series: np.ndarray) -> str:
-    """
-    Автоматически определяет режим: стационарность, периодичность или хаос.
-    """
     std = np.std(time_series[-int(len(time_series)/2):])
     if std < 1e-3:
         return "Стационарность"
-    # простой критерий: значимые колебания
     peaks = np.sum(np.diff(np.sign(np.diff(time_series))) < 0)
     if peaks > 5:
         return "Периодические колебания"
@@ -49,10 +98,6 @@ def analyze_behavior(time_series: np.ndarray) -> str:
 
 
 def sensitivity_heatmap(model_func, param_ranges: dict, fixed_args: dict, T: int):
-    """
-    Строит тепловую карту амплитуды от двух параметров.
-    param_ranges: {'r': (0.1,1.0,10), 'K': (50,200,10)}
-    """
     p1, p2 = list(param_ranges.keys())
     v1 = np.linspace(*param_ranges[p1])
     v2 = np.linspace(*param_ranges[p2])
@@ -72,11 +117,6 @@ def sensitivity_heatmap(model_func, param_ranges: dict, fixed_args: dict, T: int
 
 
 def optimize_parameters(model_func, data: np.ndarray, initial_guess: list, bounds: list, T: int):
-    """
-    Подгонка параметров модели по MSE.
-    initial_guess: [N0, r, K]
-    bounds: [(0, None), (0, None), (0, None)]
-    """
     def loss(params):
         sim = model_func(params[0], params[1], params[2], T)
         return np.mean((sim - data)**2)
@@ -85,9 +125,6 @@ def optimize_parameters(model_func, data: np.ndarray, initial_guess: list, bound
 
 
 def generate_pdf_report(html_content: str, output_path: str = "report.pdf"):
-    """
-    Генерирует PDF из HTML через pdfkit.
-    """
     pdfkit.from_string(html_content, output_path)
     return output_path
 
@@ -101,59 +138,75 @@ st.title("🌱 Симулятор Популяционной Динамики с
 models = {
     "Логистический рост": simulate_logistic,
     "Модель Рикера": simulate_ricker,
-    # ... добавить другие модели ...
+    "Модель Лесли": lambda N0, r, K, T: simulate_leslie(N0, r, K, T),  # адаптация интерфейса
+    "Модель с задержкой": lambda N0, r, K, T: simulate_delay(N0, r, K, T, tau),
+    "Стохастическая симуляция": lambda N0, r, K, T: simulate_stochastic(simulate_logistic, N0, r, K, T, sigma, repeats)
 }
 model_name = st.sidebar.selectbox("Выберите модель:", list(models.keys()))
-model_func = models[model_name]
 
+# Загрузка параметров
 T = st.sidebar.slider("Шаги времени (T)", 10, 500, 100)
-
-# Параметры для анализа чувствительности
-if st.sidebar.checkbox("Показать анализ чувствительности"):
-    st.sidebar.markdown("#### Настройка анализа")
-    p1 = st.sidebar.selectbox("Параметр 1", ["r", "K"])
-    p2 = st.sidebar.selectbox("Параметр 2", ["r", "K"])  
-    v1_range = st.sidebar.slider(f"Диапазон {p1}", 0.0, 2.0, (0.1,1.0), 0.1)
-    v2_range = st.sidebar.slider(f"Диапазон {p2}", 10.0, 500.0, (50.0,200.0), 10.0)
-
-# Основные параметры
 N0 = st.sidebar.number_input("Начальная популяция N0", 0.0, 1000.0, 10.0)
 r = st.sidebar.number_input("Темп роста r", 0.0, 5.0, 0.5)
 K = st.sidebar.number_input("Емкость среды K", 1.0, 1000.0, 100.0)
 
-# Загрузка данных для подгонки
+# Доп. параметры для конкретных моделей
+tau = st.sidebar.number_input("Задержка τ (для модели с задержкой)", 1, 10, 2)
+sigma = st.sidebar.number_input("σ (для стохастической)", 0.0, 1.0, 0.1)
+repeats = st.sidebar.number_input("Повторения (для стохастической)", 1, 200, 50)
+
+# Параметры Лесли
+n = st.sidebar.number_input("Число возрастных классов", 2, 10, 3)
+fertility = [st.sidebar.number_input(f"f_{i}", 0.0, 1.0, 0.5) for i in range(n)]
+survival = [st.sidebar.number_input(f"s_{i}", 0.0, 1.0, 0.8) for i in range(n-1)]
+N0_vec = [st.sidebar.number_input(f"N0_{i}", 0.0, 100.0, 10.0) for i in range(n)]
+
+# File uploader
 uploaded = st.sidebar.file_uploader("Загрузить CSV для подгонки параметров", type=["csv"])
 
-if st.sidebar.button("Запустить симуляцию"):
-    ts = model_func(N0, r, K, T)
-    behavior = analyze_behavior(ts)
-    st.subheader("Результаты симуляции")
-    st.line_chart(pd.DataFrame(ts, columns=["Популяция"]))
-    st.write(f"Определённый режим поведения: {behavior}")
+if st.sidebar.button("Симулировать"):
+    # Запуск выбранной модели
+    if model_name in ["Логистический рост", "Модель Рикера"]:
+        ts = models[model_name](N0, r, K, T)
+    elif model_name == "Модель Лесли":
+        ts = simulate_leslie(N0_vec, fertility, survival, T)
+    elif model_name == "Модель с задержкой":
+        ts = simulate_delay(N0, r, K, T, tau)
+    else:
+        ts = simulate_stochastic(simulate_logistic, N0, r, K, T, sigma=sigma, repeats=repeats)
+
+    # Визуализация и анализ
+    st.subheader(f"Результаты: {model_name}")
+    st.line_chart(pd.DataFrame(ts if ts.ndim==1 else ts))
+    st.write(f"Режим поведения: {analyze_behavior(ts.flatten())}")
+
+    # Скачать CSV и GPT-анализ
+    export_csv(ts, model_name.replace(" ", "_"), model_name, f"N0={N0}, r={r}, K={K}, tau={tau}, sigma={sigma}")
 
     # Анализ чувствительности
-    if 'Показать анализ чувствительности' in st.session_state:
+    if st.sidebar.checkbox("Показать анализ чувствительности"):
         fig = sensitivity_heatmap(
-            model_func,
-            {p1: (v1_range[0], v1_range[1], 20), p2: (v2_range[0], v2_range[1], 20)},
+            models[model_name],
+            {'r': (0.1,1.0,20), 'K': (50,200,20)},
             {'N0': N0, 'r': r, 'K': K},
             T
         )
-        st.subheader("Анализ чувствительности (амплитуда)")
+        st.subheader("Чувствительность (амплитуда)")
         st.pyplot(fig)
 
     # Подгонка параметров
     if uploaded is not None:
         df = pd.read_csv(uploaded)
-        data = df.iloc[:,1].values
-        res = optimize_parameters(model_func, data, [N0, r, K], [(0,None),(0,None),(0,None)], T)
+        data = df.iloc[:,1].values if df.shape[1]>1 else df.iloc[:,0].values
+        res = optimize_parameters(models[model_name], data, [N0, r, K], [(0,None),(0,None),(0,None)], T)
         st.subheader("Подгонка параметров")
-        st.write(f"Оптимальные параметры: N0={res.x[0]:.3f}, r={res.x[1]:.3f}, K={res.x[2]:.3f}")
+        st.write(f"Оптимальные: N0={res.x[0]:.2f}, r={res.x[1]:.2f}, K={res.x[2]:.2f}")
 
-    # Генерация отчёта
-    if st.button("Скачать PDF отчёт"):
-        html = st.experimental_get_query_params()  # упрощённый пример сборки отчёта
-        path = generate_pdf_report(html)
+    # Скачать отчёт
+    if st.sidebar.button("Скачать PDF отчёт"):
+        html = st.experimental_get_query_params()
+        path = generate_pdf_report(str(html))
         st.success(f"Отчёт сохранён: {path}")
 
-# Конец кода
+st.sidebar.markdown("---")
+st.sidebar.info("Разработано Лией Ахметовой")
