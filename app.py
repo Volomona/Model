@@ -440,6 +440,14 @@ if st.sidebar.button("Симулировать"):
                 st.line_chart(df)
                 export_csv(df, 'ricker_model_multiple', 'Модель Рикера',
                            f"Множественные траектории:\n{'\n'.join(config_descriptions)}\nДанные:\n{all_trajs}")
+                with st.expander("Анализ чувствительности: тепловая карта"):
+                    model_type = st.selectbox("Модель", ["Логистическая", "Рикера"])
+                    param1 = st.selectbox("Параметр 1 (по оси X)", ["r", "K"])
+                    param2 = st.selectbox("Параметр 2 (по оси Y)", ["r", "K"])
+        
+                    steps = st.slider("Разбиение сетки (NxN)", 10, 50, 20)
+    
+                    run_heatmap = st.button("Сгенерировать тепловую карту")
 
 
         elif model == "Модель с задержкой":
@@ -507,14 +515,7 @@ if st.sidebar.button("Симулировать"):
                            f"Средние значения:\n{all_means}\n"
                            f"Базовые параметры: N0={common['N0']}, r={common['r']}, K={common['K']}")
                 
-with st.expander("Анализ чувствительности: тепловая карта"):
-    model_type = st.selectbox("Модель", ["Логистическая", "Рикера"])
-    param1 = st.selectbox("Параметр 1 (по оси X)", ["r", "K"])
-    param2 = st.selectbox("Параметр 2 (по оси Y)", ["r", "K"])
-    
-    steps = st.slider("Разбиение сетки (NxN)", 10, 50, 20)
-    
-    run_heatmap = st.button("Сгенерировать тепловую карту")
+
 
 
 # Footer
