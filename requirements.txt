@@ -2,3 +2,6 @@ numpy
 pandas
 matplotlib
 g4f[all]
+SALib 
+scipy
+pdfkit
