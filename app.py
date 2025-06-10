@@ -1,4 +1,3 @@
-сравни полученный код с этим
 import sys
 import io
 import logging
