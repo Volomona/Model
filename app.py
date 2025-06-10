@@ -4,11 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
-import g4f
 from scipy.optimize import minimize
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-import io
 
 # -------------------------------
 # Настройка логирования
@@ -127,23 +123,6 @@ def optimize_parameters(model, data, guess, bounds, T):
         return np.mean((model(p[0], p[1], p[2], T) - data)**2)
     return minimize(loss, guess, bounds=bounds)
 
-def generate_pdf_report(model_name, ts):
-    buffer = io.BytesIO()
-    c = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(50, height-50, f"Отчет по модели: {model_name}")
-    c.setFont("Helvetica", 12)
-    text = c.beginText(50, height-100)
-    text.textLine("Первые 10 значений:")
-    for val in ts.flatten()[:10]:
-        text.textLine(f"  {val:.3f}")
-    c.drawText(text)
-    c.showPage()
-    c.save()
-    buffer.seek(0)
-    return buffer
-
 # -------------------------------
 # Streamlit UI
 # -------------------------------
@@ -235,7 +214,6 @@ if 'res' in st.session_state:
 
     st.subheader(f"Результаты: {model_name}")
 
-
     st.line_chart(pd.DataFrame(res))
 
     st.write("Режим:", analyze_behavior(res.flatten()))
@@ -268,15 +246,5 @@ if 'res' in st.session_state:
                 [(0, None), (0, None), (0, None)], T
             )
             st.write("Оптимальные параметры:", res_opt.x)
-
-    if st.sidebar.button("Скачать PDF отчет"):
-        pdf_buffer = generate_pdf_report(model_name, res)
-        st.download_button(
-            label="Скачать PDF",
-            data=pdf_buffer,
-            file_name=f"{model_name}_report.pdf",
-            mime="application/pdf"
-        )
-
 
 st.sidebar.info("Разработано Лией Ахметовой")
