@@ -84,7 +84,7 @@ def simulate_stochastic(base_sim, N0, r, K, T, sigma, repeats):
     runs = []
     prog = st.progress(0)
     for i in range(repeats):
-        traj = base_sim(N0,r,K,T)
+        traj = base_sim(N0, r, K, T)
         noise = np.random.normal(0, sigma, size=traj.shape)
         runs.append(np.clip(traj + noise, 0, None))
         prog.progress((i+1)/repeats)
@@ -107,8 +107,8 @@ def sensitivity_heatmap(model, param_ranges, fixed, T):
     v1 = np.linspace(*param_ranges[p1])
     v2 = np.linspace(*param_ranges[p2])
     M = np.zeros((len(v1), len(v2)))
-    for i,x in enumerate(v1):
-        for j,y in enumerate(v2):
+    for i, x in enumerate(v1):
+        for j, y in enumerate(v2):
             args = fixed.copy()
             args[p1], args[p2] = x, y
             ts = model(*args.values(), T)
@@ -116,7 +116,8 @@ def sensitivity_heatmap(model, param_ranges, fixed, T):
     fig, ax = plt.subplots()
     c = ax.pcolormesh(v1, v2, M.T, shading='auto')
     fig.colorbar(c, ax=ax)
-    ax.set_xlabel(p1); ax.set_ylabel(p2)
+    ax.set_xlabel(p1)
+    ax.set_ylabel(p2)
     return fig
 
 def optimize_parameters(model, data, guess, bounds, T):
@@ -147,69 +148,77 @@ models = {
 model = st.sidebar.selectbox("Модель:", list(models.keys()))
 T = st.sidebar.slider("T", 10, 500, 100)
 
-# Параметры ввода
+# Input collection
 if model == "Гибридная":
     n = st.sidebar.number_input("классов", 2, 10, 3)
-    N0v = [st.sidebar.number_input(f"N0_{i}", 0.0,1000.0,10.0) for i in range(n)]
-    fert = [st.sidebar.number_input(f"f_{i}", 0.0,1.0,0.5) for i in range(n)]
-    surv = [st.sidebar.number_input(f"s_{i}", 0.0,1.0,0.8) for i in range(n-1)]
-    df = [st.sidebar.number_input(f"df_{i}", 0,5,1) for i in range(n)]
-    ds = [st.sidebar.number_input(f"ds_{i}", 0,5,1) for i in range(n-1)]
-    mig = [st.sidebar.number_input(f"m_{i}", 0.0,0.5,0.1) for i in range(n)]
-    K = st.sidebar.number_input("K", 1.0,1000.0,100.0)
-    rf = st.sidebar.number_input("rf", 0.0,1.0,0.1)
-    rs = st.sidebar.number_input("rs", 0.0,1.0,0.05)
-    ee = st.sidebar.slider("env", -1.0,1.0,0.2)
-    si = st.sidebar.slider("sto", 0.0,1.0,0.1)
+    N0v = [st.sidebar.number_input(f"N0_{i}", 0.0, 1000.0, 10.0) for i in range(n)]
+    fert = [st.sidebar.number_input(f"f_{i}", 0.0, 1.0, 0.5) for i in range(n)]
+    surv = [st.sidebar.number_input(f"s_{i}", 0.0, 1.0, 0.8) for i in range(n-1)]
+    df = [st.sidebar.number_input(f"df_{i}", 0, 5, 1) for i in range(n)]
+    ds = [st.sidebar.number_input(f"ds_{i}", 0, 5, 1) for i in range(n-1)]
+    mig = [st.sidebar.number_input(f"m_{i}", 0.0, 0.5, 0.1) for i in range(n)]
+    K = st.sidebar.number_input("K", 1.0, 1000.0, 100.0)
+    rf = st.sidebar.number_input("rf", 0.0, 1.0, 0.1)
+    rs = st.sidebar.number_input("rs", 0.0, 1.0, 0.05)
+    ee = st.sidebar.slider("env", -1.0, 1.0, 0.2)
+    si = st.sidebar.slider("sto", 0.0, 1.0, 0.1)
     if st.sidebar.button("Sim"):
         res = models[model](N0v, T, fert, surv, K, rf, rs, df, ds, mig, ee, si)
 
 elif model in ["Логистический", "Рикер"]:
-    N0 = st.sidebar.number_input("N0", 0.0,1000.0,10.0)
-    r = st.sidebar.number_input("r", 0.0,5.0,0.5)
-    K = st.sidebar.number_input("K", 1.0,1000.0,100.0)
+    N0 = st.sidebar.number_input("N0", 0.0, 1000.0, 10.0)
+    r = st.sidebar.number_input("r", 0.0, 5.0, 0.5)
+    K = st.sidebar.number_input("K", 1.0, 1000.0, 100.0)
     if st.sidebar.button("Sim"):
         res = models[model](N0, r, K, T)
 
 elif model == "С задержкой":
-    N0 = st.sidebar.number_input("N0", 0.0,1000.0,10.0)
-    r = st.sidebar.number_input("r", 0.0,5.0,0.5)
-    K = st.sidebar.number_input("K", 1.0,1000.0,100.0)
-    tau = st.sidebar.number_input("tau", 1,10,1)
+    N0 = st.sidebar.number_input("N0", 0.0, 1000.0, 10.0)
+    r = st.sidebar.number_input("r", 0.0, 5.0, 0.5)
+    K = st.sidebar.number_input("K", 1.0, 1000.0, 100.0)
+    tau = st.sidebar.number_input("tau", 1, 10, 1)
     if st.sidebar.button("Sim"):
         res = models[model](N0, r, K, T, tau)
 
 elif model == "Лесли":
-    n = st.sidebar.number_input("классов", 2,10,3)
-    N0v = [st.sidebar.number_input(f"N0_{i}", 0.0,1000.0,10.0) for i in range(n)]
-    fert = [st.sidebar.number_input(f"f_{i}", 0.0,1.0,0.5) for i in range(n)]
-    surv = [st.sidebar.number_input(f"s_{i}", 0.0,1.0,0.8) for i in range(n-1)]
+    n = st.sidebar.number_input("классов", 2, 10, 3)
+    N0v = [st.sidebar.number_input(f"N0_{i}", 0.0, 1000.0, 10.0) for i in range(n)]
+    fert = [st.sidebar.number_input(f"f_{i}", 0.0, 1.0, 0.5) for i in range(n)]
+    surv = [st.sidebar.number_input(f"s_{i}", 0.0, 1.0, 0.8) for i in range(n-1)]
     if st.sidebar.button("Sim"):
         res = models[model](N0v, fert, surv, T)
 
 else:
-    N0 = st.sidebar.number_input("N0", 0.0,1000.0,10.0)
-    r = st.sidebar.number_input("r", 0.0,5.0,0.5)
-    K = st.sidebar.number_input("K", 1.0,1000.0,100.0)
-    sigma = st.sidebar.number_input("sigma", 0.0,1.0,0.1)
-    repeats = st.sidebar.number_input("repeats", 1,200,50)
+    N0 = st.sidebar.number_input("N0", 0.0, 1000.0, 10.0)
+    r = st.sidebar.number_input("r", 0.0, 5.0, 0.5)
+    K = st.sidebar.number_input("K", 1.0, 1000.0, 100.0)
+    sigma = st.sidebar.number_input("sigma", 0.0, 1.0, 0.1)
+    repeats = st.sidebar.number_input("repeats", 1, 200, 50)
     if st.sidebar.button("Sim"):
         res = models[model](simulate_logistic, N0, r, K, T, sigma, repeats)
 
-# Отображение результатов
+# Display results
 if 'res' in locals():
     st.subheader(f"Результаты: {model}")
     st.line_chart(pd.DataFrame(res))
     st.write("Режим:", analyze_behavior(res.flatten()))
     if st.sidebar.button("Скачать CSV"):
         export_csv(res, model, str(res[:10]), "")
-    st.pyplot(sensitivity_heatmap(models[model], {'r':(0.1,1,20), 'K':(10,200,20)},
-                                  {'N0': locals().get('N0', None), 'r': locals().get('r', None), 'K': locals().get('K', None)}, T))
+    try:
+        fig = sensitivity_heatmap(
+            models[model],
+            {'r': (0.1, 1, 20), 'K': (10, 200, 20)},
+            {'N0': locals().get('N0'), 'r': locals().get('r'), 'K': locals().get('K')},
+            T
+        )
+        st.pyplot(fig)
+    except Exception:
+        st.warning("Невозможно построить тепловую карту для этой модели.")
     if st.sidebar.checkbox("Оптимизация параметров"):
         # Здесь можно реализовать загрузку CSV и вызов optimize_parameters
         pass
-    if st.sidebar.button("PDF отчет"):
+    if st.sidebar.button("PDF отчёт"):
         path = generate_pdf_report(model, res)
-        st.success(f"Отчет сохранен: {path}")
+        st.success(f"Отчёт сохранён: {path}")
 
 st.sidebar.info("Разработано Лией Ахметовой")
