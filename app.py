@@ -13,47 +13,42 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def amplitude_of_dynamics(values):
-    return np.max(values) - np.min(values)
+    values_clean = values[~np.isnan(values)]
+    return np.max(values_clean) - np.min(values_clean) if values_clean.size > 1 else np.nan
 
-def generate_heatmap(model_func, param1, param2, param_ranges, fixed_params, steps=20):
+def generate_heatmap(model_func, param1, param2, param_ranges, fixed_params, steps=20, metric="amplitude"):
     p1_vals = np.linspace(param_ranges[param1][0], param_ranges[param1][1], steps)
     p2_vals = np.linspace(param_ranges[param2][0], param_ranges[param2][1], steps)
     
-    amplitudes = np.zeros((steps, steps))
+    matrix = np.full((len(p2_vals), len(p1_vals)), np.nan)
 
     for i, p1 in enumerate(p1_vals):
         for j, p2 in enumerate(p2_vals):
             params = fixed_params.copy()
             if param1.startswith("f_") or param1.startswith("s_"):
                 idx = int(param1.split("_")[1])
-                if param1.startswith("f_"):
-                    params["fertility"][idx] = p1
-                else:
-                    params["survival"][idx] = p1
+                params["fertility" if param1.startswith("f_") else "survival"][idx] = p1
             else:
                 params[param1] = p1
             if param2.startswith("f_") or param2.startswith("s_"):
                 idx = int(param2.split("_")[1])
-                if param2.startswith("f_"):
-                    params["fertility"][idx] = p2
-                else:
-                    params["survival"][idx] = p2
+                params["fertility" if param2.startswith("f_") else "survival"][idx] = p2
             else:
                 params[param2] = p2
-            pop = model_func(params, steps=300)
-            amplitudes[j, i] = amplitude_of_dynamics(pop[-100:])
+            result = model_func(params)
+            matrix[j, i] = result
 
     fig, ax = plt.subplots(figsize=(8, 6))
-    sns.heatmap(amplitudes, xticklabels=np.round(p1_vals, 2),
-                yticklabels=np.round(p2_vals, 2), cmap="viridis", ax=ax)
+    sns.heatmap(matrix, xticklabels=np.round(p1_vals, 2), yticklabels=np.round(p2_vals, 2),
+                cmap="viridis" if metric == "amplitude" else "coolwarm", ax=ax,
+                cbar_kws={'label': "Амплитуда" if metric == "amplitude" else "λ_max" if metric == "lambda" else "Std(N_T)"})
     ax.set_xlabel(param1)
     ax.set_ylabel(param2)
-    ax.set_title("Амплитуда колебаний")
+    ax.set_title(f"{'Амплитуда' if metric == 'amplitude' else 'λ_max' if metric == 'lambda' else 'Std(N_T)'}")
     plt.xticks(rotation=45)
     st.pyplot(fig)
 
 def simulate_unified_hybrid(params, timesteps):
-    """Объединённая гибридная модель с настраиваемыми параметрами"""
     N0_vec = params["N0_vec"]
     fert_base = params["fert_base"]
     surv_base = params["surv_base"]
@@ -145,25 +140,37 @@ def simulate_unified_hybrid(params, timesteps):
 
         return np.array(history)
 
-def simulate_logistic(params, steps):
+def simulate_logistic(params):
     N0 = params["N0"]
     r = params["r"]
     K = params["K"]
+    T = params["T"]
     Ns = [N0]
-    for _ in range(steps):
-        Ns.append(Ns[-1] + r * Ns[-1] * (1 - Ns[-1] / K))
+    for _ in range(T):
+        Nt = Ns[-1]
+        if K <= 0 or Nt > 10 * K or Nt < -10 * K:
+            Ns.append(np.nan)
+            continue
+        next_N = Nt + r * Nt * (1 - Nt / K)
+        Ns.append(next_N if np.isfinite(next_N) else np.nan)
     return np.array(Ns)
 
-def simulate_ricker(params, steps):
+def simulate_ricker(params):
     N0 = params["N0"]
     r = params["r"]
     K = params["K"]
+    T = params["T"]
     Ns = [N0]
-    for _ in range(steps):
-        Ns.append(Ns[-1] * np.exp(r * (1 - Ns[-1] / K)))
+    for _ in range(T):
+        Nt = Ns[-1]
+        if K <= 0 or Nt > 10 * K or Nt < -10 * K:
+            Ns.append(np.nan)
+            continue
+        next_N = Nt * np.exp(r * (1 - Nt / K))
+        Ns.append(next_N if np.isfinite(next_N) else np.nan)
     return np.array(Ns)
 
-def simulate_leslie(params, steps):
+def simulate_leslie(params, T):
     N0_vec = params["N0_vec"]
     fertility = params["fertility"]
     survival = params["survival"]
@@ -174,35 +181,68 @@ def simulate_leslie(params, steps):
     L[0, :] = fertility
     for i in range(1, n):
         L[i, i-1] = survival[i-1]
-    for _ in range(steps):
+    for _ in range(T):
         N = L.dot(N)
         history.append(N.copy())
     return np.array(history).sum(axis=1)
 
-def simulate_delay(params, steps):
+def simulate_leslie_lambda_max(params):
+    fertility = params["fertility"]
+    survival = params["survival"]
+    n = len(fertility)
+    L = np.zeros((n, n))
+    L[0, :] = fertility
+    for i in range(1, n):
+        L[i, i-1] = survival[i-1]
+    eigvals = np.linalg.eigvals(L)
+    return np.max(np.abs(eigvals))
+
+def simulate_delay(params):
     N0 = params["N0"]
     r = params["r"]
     K = params["K"]
     tau = int(params["tau"])
+    T = params["T"]
+    T_metric = params.get("T_metric", 50)
+    if tau < 1:
+        tau = 1
     Ns = [N0] * (tau + 1)
-    for t in range(tau, steps + tau):
-        N_next = Ns[t] * np.exp(r * (1 - Ns[t - tau] / K))
-        Ns.append(N_next)
-    return np.array(Ns[:steps + 1])
+    for _ in range(T):
+        N_t = Ns[-1]
+        N_t_minus_tau = Ns[-(tau + 1)]
+        if K <= 0:
+            next_N = np.nan
+        else:
+            next_N = N_t * np.exp(r * (1 - N_t_minus_tau / K))
+        Ns.append(next_N if np.isfinite(next_N) else np.nan)
+    simulated_part = np.array(Ns[tau + 1 : tau + 1 + T])
+    traj_clean = simulated_part[~np.isnan(simulated_part)]
+    if traj_clean.size > T_metric:
+        settled = traj_clean[-T_metric:]
+        if settled.size > 1:
+            return np.max(settled) - np.min(settled)
+    return np.nan
 
-def simulate_stochastic(params, steps):
-    base_sim = simulate_logistic if params["base_model"] == "Логистическая" else simulate_ricker
+def simulate_stochastic(params):
     N0 = params["N0"]
     r = params["r"]
     K = params["K"]
+    T = params["T"]
     sigma = params["sigma"]
-    repeats = 10  # Уменьшено для скорости
-    runs = []
+    repeats = params["repeats"]
+    base_model = params["base_model"]
+    base_sim = simulate_ricker if base_model == "Модель Рикера" else simulate_logistic
+    finals = []
     for _ in range(repeats):
-        traj = base_sim({"N0": N0, "r": r, "K": K}, steps)
-        noise = np.random.normal(0, sigma, size=len(traj))
-        runs.append(np.clip(traj + noise, 0, None))
-    return np.array(runs).mean(axis=0)
+        traj = base_sim({"N0": N0, "r": r, "K": K, "T": T})
+        noise = np.random.normal(0, sigma, size=traj.shape)
+        noisy = traj + noise
+        noisy = np.where(np.isfinite(noisy), noisy, np.nan)
+        final_vals = noisy[~np.isnan(noisy)]
+        if final_vals.size > 0:
+            finals.append(final_vals[-1])
+    finals = np.array(finals)
+    return np.nanstd(finals) if finals.size > 1 else np.nan
 
 def export_csv(data, filename, typem, str_data):
     if isinstance(data, np.ndarray):
@@ -254,7 +294,8 @@ model = st.sidebar.selectbox("Выберите модель:", list(model_info.k
 st.sidebar.caption(model_info[model])
 
 st.sidebar.markdown("### Общие параметры")
-T = st.sidebar.number_input("Шаги времени (T)", min_value=1, max_value=500, value=100)
+T = st.sidebar.number_input("Шаги времени (T)", min_value=1, max_value=500, value=200)
+T_metric = 50  # Для тепловых карт
 
 if model == "Гибридная модель":
     config_params = []
@@ -353,15 +394,15 @@ if model == "Гибридная модель":
 
 elif model == "Модель с задержкой":
     tau_values = st.sidebar.multiselect(
-        "Значения задержки (τ)",
-        options=list(range(1, 11)),
-        default=[1, 2]
+        "Значения задержки (τ)", options=list(range(1, 11)), default=[1, 2]
     )
     common = {
         'N0': st.sidebar.number_input("Начальная популяция N0", min_value=0.0, value=10.0),
         'r': st.sidebar.number_input("Темп роста r", min_value=0.0, value=0.1),
         'K': st.sidebar.number_input("Емкость K", min_value=1.0, value=100.0),
-        'tau': tau_values[0] if tau_values else 1
+        'tau': tau_values[0] if tau_values else 1,
+        'T': T,
+        'T_metric': T_metric
     }
 
 elif model == "Модель Лесли":
@@ -374,11 +415,9 @@ elif model == "Модель Лесли":
         N0_vec = [st.number_input(f"N0_{i}", min_value=0.0, value=10.0, key=f"N0_{i}") for i in range(n)]
 
 elif model == "Стохастическая симуляция":
-    repeats = st.sidebar.number_input("Число повторений", min_value=1, max_value=200, value=50)
+    repeats = st.sidebar.number_input("Число повторений", min_value=1, max_value=200, value=100)
     sigma_values = st.sidebar.multiselect(
-        "Значения шума (σ)",
-        options=[0.0, 0.05, 0.1, 0.2, 0.5],
-        default=[0.1]
+        "Значения шума (σ)", options=[0.0, 0.05, 0.1, 0.2, 0.5], default=[0.1]
     )
     base_model = st.sidebar.selectbox("Основная модель:", ["Логистический рост", "Модель Рикера"])
     common = {
@@ -386,7 +425,9 @@ elif model == "Стохастическая симуляция":
         'r': st.sidebar.number_input("Темп роста r", min_value=0.0, value=0.1),
         'K': st.sidebar.number_input("Емкость K", min_value=1.0, value=100.0),
         'sigma': sigma_values[0] if sigma_values else 0.1,
-        'base_model': base_model
+        'base_model': base_model,
+        'repeats': repeats,
+        'T': T
     }
 
 else:
@@ -397,11 +438,11 @@ else:
         N0_i = st.sidebar.number_input(f"N0 (начальная популяция) #{i+1}", min_value=0.0, value=10.0, key=f"N0_{i}")
         r_i = st.sidebar.number_input(f"r (темп роста) #{i+1}", min_value=0.0, value=0.1, key=f"r_{i}")
         K_i = st.sidebar.number_input(f"K (емкость) #{i+1}", min_value=1.0, value=100.0, key=f"K_{i}")
-        params = {"N0": N0_i, "r": r_i, "K": K_i}
+        params = {"N0": N0_i, "r": r_i, "K": K_i, "T": T}
         config_params.append(params)
 
-# Анализ чувствительности в боковой панели
-with st.sidebar.expander("🔬 Анализ чувствительности (тепловая карта амплитуды)"):
+# Анализ чувствительности
+with st.sidebar.expander("🔬 Анализ чувствительности (тепловая карта)"):
     model_type = st.selectbox("Выберите модель для анализа", list(model_info.keys()))
     
     if model_type == "Гибридная модель" and model == "Гибридная модель" and config_params:
@@ -437,43 +478,57 @@ with st.sidebar.expander("🔬 Анализ чувствительности (т
             "m": None,
             "immigration": None,
             "delay": 0,
-            "noise_std": None
+            "noise_std": None,
+            "T": T,
+            "T_metric": T_metric
         }
-        model_func = lambda params, steps=300: simulate_unified_hybrid(params, steps).sum(axis=1)
+        model_func = lambda params: amplitude_of_dynamics(simulate_unified_hybrid(params, T).sum(axis=1))
+        metric = "amplitude"
     
     elif model_type in ["Логистический рост", "Модель Рикера"] and model in ["Логистический рост", "Модель Рикера"] and config_params:
         param_options = ["r", "K"]
         base_params = config_params[0].copy()
         default_ranges = {
-            "r": (max(0.0, base_params["r"] * 0.5), base_params["r"] * 1.5),
+            "r": (max(0.0, base_params["r"] * 0.5), base_params["r"] * 2.0),
             "K": (max(1.0, base_params["K"] * 0.5), base_params["K"] * 1.5)
         }
         fixed = base_params.copy()
-        model_func = simulate_logistic if model_type == "Логистический рост" else simulate_ricker
+        fixed["N0"] = base_params.get("N0", 10.0)
+        fixed["T"] = T
+        fixed["T_metric"] = T_metric
+        model_func = lambda params: amplitude_of_dynamics(simulate_logistic(params)) if model_type == "Логистический рост" else amplitude_of_dynamics(simulate_ricker(params))
+        metric = "amplitude"
     
     elif model_type == "Модель с задержкой" and model == "Модель с задержкой" and 'common' in locals():
-        param_options = ["r", "K", "tau"]
+        param_options = ["r", "tau"]
         base_params = common.copy()
         default_ranges = {
-            "r": (max(0.0, base_params["r"] * 0.5), base_params["r"] * 1.5),
-            "K": (max(1.0, base_params["K"] * 0.5), base_params["K"] * 1.5),
-            "tau": (max(1, int(base_params["tau"]) - 2), int(base_params["tau"]) + 2)
+            "r": (max(0.0, base_params["r"] * 0.5), base_params["r"] * 2.0),
+            "tau": (1, 10)
         }
         fixed = base_params.copy()
         fixed["N0"] = base_params.get("N0", 10.0)
+        fixed["K"] = base_params.get("K", 100.0)
+        fixed["T"] = T
+        fixed["T_metric"] = T_metric
         model_func = simulate_delay
+        metric = "amplitude"
     
     elif model_type == "Стохастическая симуляция" and model == "Стохастическая симуляция" and 'common' in locals():
-        param_options = ["r", "K", "sigma"]
+        param_options = ["r", "sigma"]
         base_params = common.copy()
         default_ranges = {
-            "r": (max(0.0, base_params["r"] * 0.5), base_params["r"] * 1.5),
-            "K": (max(1.0, base_params["K"] * 0.5), base_params["K"] * 1.5),
+            "r": (max(0.0, base_params["r"] * 0.5), base_params["r"] * 2.0),
             "sigma": (0.0, max(0.1, base_params["sigma"] * 2.0))
         }
         fixed = base_params.copy()
         fixed["N0"] = base_params.get("N0", 10.0)
+        fixed["K"] = base_params.get("K", 100.0)
+        fixed["repeats"] = base_params.get("repeats", 100)
+        fixed["base_model"] = base_params.get("base_model", "Модель Рикера")
+        fixed["T"] = T
         model_func = simulate_stochastic
+        metric = "std"
     
     elif model_type == "Модель Лесли" and model == "Модель Лесли":
         param_options = [f"f_{i}" for i in range(len(fertility))] + [f"s_{i}" for i in range(len(survival))]
@@ -483,23 +538,22 @@ with st.sidebar.expander("🔬 Анализ чувствительности (т
             "survival": survival
         }
         default_ranges = {
-            f"f_{i}": (max(0.0, fertility[i] * 0.5), fertility[i] * 1.5) for i in range(len(fertility))
+            f"f_{i}": (max(0.0, fertility[i] * 0.8), fertility[i] * 1.2) for i in range(len(fertility))
         }
         default_ranges.update(
-            {f"s_{i}": (max(0.0, survival[i] * 0.5), min(1.0, survival[i] * 1.5)) for i in range(len(survival))}
+            {f"s_{i}": (max(0.0, survival[i] * 0.8), min(1.0, survival[i] * 1.2)) for i in range(len(survival))}
         )
         fixed = base_params.copy()
-        model_func = simulate_leslie
+        model_func = simulate_leslie_lambda_max
+        metric = "lambda"
     
     else:
         param_options = ["r", "K"]
-        base_params = {"N0": 10.0, "r": 1.5, "K": 300.0}
-        default_ranges = {
-            "r": (0.1, 3.0),
-            "K": (50, 500)
-        }
+        base_params = {"N0": 10.0, "r": 0.1, "K": 100.0, "T": T, "T_metric": T_metric}
+        default_ranges = {"r": (0.05, 0.2), "K": (50, 150)}
         fixed = base_params.copy()
-        model_func = simulate_logistic
+        model_func = lambda params: amplitude_of_dynamics(simulate_logistic(params))
+        metric = "amplitude"
 
     param1 = st.selectbox("Параметр по оси X", param_options)
     param2 = st.selectbox("Параметр по оси Y", param_options, index=1 if len(param_options) > 1 else 0)
@@ -524,7 +578,7 @@ with st.sidebar.expander("🔬 Анализ чувствительности (т
         if param1_min >= param1_max or param2_min >= param2_max:
             st.error("Минимальное значение должно быть меньше максимального!")
         else:
-            generate_heatmap(model_func, param1, param2, param_ranges, fixed, steps)
+            generate_heatmap(model_func, param1, param2, param_ranges, fixed, steps, metric)
 
 if st.sidebar.button("Симулировать"):
     with st.spinner("Симуляция..."):
@@ -561,7 +615,7 @@ if st.sidebar.button("Симулировать"):
 
         elif model == "Логистический рост":
             if configs_count == 1:
-                traj = simulate_logistic(config_params[0], T)
+                traj = simulate_logistic(config_params[0])
                 df = pd.DataFrame(traj, columns=["Популяция"])
                 st.subheader("Логистический рост")
                 st.line_chart(df)
@@ -571,7 +625,7 @@ if st.sidebar.button("Симулировать"):
                 all_trajs = {}
                 config_descriptions = []
                 for idx, config in enumerate(config_params):
-                    traj = simulate_logistic(config, T)
+                    traj = simulate_logistic(config)
                     all_trajs[f"Конфигурация #{idx + 1} (r={config['r']}, K={config['K']})"] = traj
                     config_descriptions.append(f"Конфигурация #{idx + 1}: N0={config['N0']}, r={config['r']}, K={config['K']}")
                 df = pd.DataFrame(all_trajs)
@@ -582,7 +636,7 @@ if st.sidebar.button("Симулировать"):
 
         elif model == "Модель Рикера":
             if configs_count == 1:
-                traj = simulate_ricker(config_params[0], T)
+                traj = simulate_ricker(config_params[0])
                 df = pd.DataFrame(traj, columns=["Популяция"])
                 st.subheader("Модель Рикера")
                 st.line_chart(df)
@@ -592,7 +646,7 @@ if st.sidebar.button("Симулировать"):
                 all_trajs = {}
                 config_descriptions = []
                 for idx, config in enumerate(config_params):
-                    traj = simulate_ricker(config, T)
+                    traj = simulate_ricker(config)
                     all_trajs[f"Конфигурация #{idx + 1} (r={config['r']}, K={config['K']})"] = traj
                     config_descriptions.append(f"Конфигурация #{idx + 1}: N0={config['N0']}, r={config['r']}, K={config['K']}")
                 df = pd.DataFrame(all_trajs)
@@ -610,7 +664,7 @@ if st.sidebar.button("Симулировать"):
                 for tau_i in tau_values:
                     params = common.copy()
                     params['tau'] = tau_i
-                    traj = simulate_delay(params, T)
+                    traj = simulate_delay(params)
                     all_trajs[f"τ = {tau_i}"] = traj
                     tau_descriptions.append(
                         f"Задержка τ={tau_i} при N0={params['N0']}, r={params['r']}, K={params['K']}")
@@ -621,16 +675,12 @@ if st.sidebar.button("Симулировать"):
                            f"Траектории с разными задержками:\n{'\n'.join(tau_descriptions)}\nДанные:\n{all_trajs}")
 
         elif model == "Модель Лесли":
-            params = {"N0_vec": N0_vec, "fertility": fertility, "survival": survival}
+            params = {"N0_vec": N0_vec, "fertility": fertility, "survival": survival, "T": T}
             history = simulate_leslie(params, T)
-            df = pd.DataFrame(history, columns=[f"Возраст {i}" for i in range(n)])
+            df = pd.DataFrame(history, columns=["Популяция"])
             st.subheader("Модель Лесли")
             st.line_chart(df)
-            L = np.zeros((n, n))
-            L[0, :] = fertility
-            for i in range(1, n):
-                L[i, i-1] = survival[i-1]
-            lambda_val = np.max(np.abs(np.linalg.eigvals(L)))
+            lambda_val = simulate_leslie_lambda_max(params)
             st.write(f"Доминирующее собственное значение λ = {lambda_val:.3f}")
             export_csv(df, 'leslie_matrix', 'Модель Лесли', history)
 
@@ -644,7 +694,14 @@ if st.sidebar.button("Симулировать"):
                 for sigma in sigma_values:
                     params = common.copy()
                     params['sigma'] = sigma
-                    results = simulate_stochastic(params, T)
+                    base_sim = simulate_ricker if params["base_model"] == "Модель Рикера" else simulate_logistic
+                    results = []
+                    for _ in range(repeats):
+                        traj = base_sim({"N0": params["N0"], "r": params["r"], "K": params["K"], "T": T})
+                        noise = np.random.normal(0, sigma, size=traj.shape)
+                        noisy = np.clip(traj + noise, 0, None)
+                        results.append(noisy)
+                    results = np.array(results)
                     for i in range(repeats):
                         ax.plot(results[i], alpha=0.1, linewidth=0.8)
                     mean_traj = results.mean(axis=0)
