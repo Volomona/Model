@@ -16,8 +16,8 @@ def amplitude_of_dynamics(values):
     return np.max(values) - np.min(values)
 
 def generate_heatmap(model_func, param1, param2, param_ranges, fixed_params, steps=20):
-    p1_vals = np.linspace(*param_ranges[param1], steps)
-    p2_vals = np.linspace(*param_ranges[param2], steps)
+    p1_vals = np.linspace(param_ranges[param1][0], param_ranges[param1][1], steps)
+    p2_vals = np.linspace(param_ranges[param2][0], param_ranges[param2][1], steps)
     
     amplitudes = np.zeros((steps, steps))
 
@@ -27,7 +27,7 @@ def generate_heatmap(model_func, param1, param2, param_ranges, fixed_params, ste
             params[param1] = p1
             params[param2] = p2
             pop = model_func(params, steps=300)
-            amplitudes[j, i] = amplitude_of_dynamics(pop[-100:])  # последние 100 шагов
+            amplitudes[j, i] = amplitude_of_dynamics(pop[-100:])
 
     fig, ax = plt.subplots(figsize=(8, 6))
     sns.heatmap(amplitudes, xticklabels=np.round(p1_vals, 2),
@@ -195,7 +195,7 @@ def export_csv(data, filename, typem, str_data):
         container.write("Анализ полученных данных:")
         container.write(response)
     except Exception as e:
-        st.warning(f"Не удалось выполнить анализ с помощью g4f: {str(e)}")
+        st.warning(f"Не удалось выполнить анализ с помощью g4f: {str(e)}. Попробуйте позже или проверьте подключение.")
 
 st.set_page_config(page_title="Симулятор Популяционной Динамики", layout="wide")
 st.title("🌱 Симулятор Популяционной Динамики")
@@ -218,37 +218,57 @@ T = st.sidebar.number_input("Шаги времени (T)", min_value=1, max_valu
 
 with st.expander("🔬 Анализ чувствительности (тепловая карта амплитуды)"):
     model_type = st.selectbox("Выберите модель", ["Логистическая", "Рикера", "Гибридная"])
-    param1 = st.selectbox("Параметр по оси X", ["r", "K"] if model_type != "Гибридная" else ["r_fert", "K"])
-    param2 = st.selectbox("Параметр по оси Y", ["r", "K"] if model_type != "Гибридная" else ["r_surv", "K"])
+    if model_type == "Гибридная":
+        param_options = ["r_fert", "r_surv", "K", "stoch_intensity", "env_effect"]
+    else:
+        param_options = ["r", "K"]
+    param1 = st.selectbox("Параметр по оси X", param_options)
+    param2 = st.selectbox("Параметр по оси Y", param_options, index=1 if len(param_options) > 1 else 0)
     steps = st.slider("Разбиение сетки", 10, 50, 20)
-    run_heatmap = st.button("Построить тепловую карту")
-
-    if run_heatmap:
+    
+    if model_type == "Гибридная":
+        st.markdown("**Настройка фиксированных параметров**")
+        n_groups = st.number_input("Число возрастных групп", min_value=2, max_value=5, value=3, key="heatmap_n_groups")
+        N0_vec = [10.0] * n_groups
+        fert_base = [0.5] * n_groups
+        surv_base = [0.8] * (n_groups - 1)
+        delay_fert = [1] * n_groups
+        delay_surv = [1] * (n_groups - 1)
+        migration_rates = [0.1] * n_groups
+        param_ranges = {
+            "r_fert": (0.01, 0.5),
+            "r_surv": (0.01, 0.5),
+            "K": (50, 500),
+            "stoch_intensity": (0.0, 1.0),
+            "env_effect": (-1.0, 1.0)
+        }
+        fixed = {
+            "N0_vec": N0_vec, "fert_base": fert_base, "surv_base": surv_base,
+            "K": 100.0, "r_fert": 0.1, "r_surv": 0.05, "delay_fert": delay_fert,
+            "delay_surv": delay_surv, "migration_rates": migration_rates,
+            "env_effect": 0.2, "stoch_intensity": 0.1,
+            "use_age_structure": True, "use_density_dependence": True, "use_migration": True,
+            "use_noise": True, "use_delay": True, "use_env_effect": True,
+            "r": None, "m": None, "immigration": None, "delay": 0, "noise_std": None
+        }
+    else:
         param_ranges = {
             "r": (0.1, 3.0),
-            "K": (50, 500),
-            "r_fert": (0.01, 0.5),
-            "r_surv": (0.01, 0.5)
+            "K": (50, 500)
         }
+        fixed = {"r": 1.5, "K": 300, "N0": 10}
+    
+    run_heatmap = st.button("Построить тепловую карту")
+    if run_heatmap:
         if model_type == "Логистическая":
-            fixed = {"r": 1.5, "K": 300, "N0": 10}
             def wrapper(params, steps=300):
                 return simulate_logistic(params["N0"], params["r"], params["K"], steps)
         elif model_type == "Рикера":
-            fixed = {"r": 1.5, "K": 300, "N0": 10}
             def wrapper(params, steps=300):
                 return simulate_ricker(params["N0"], params["r"], params["K"], steps)
         elif model_type == "Гибридная":
-            fixed = {
-                "N0_vec": [10, 10, 10], "fert_base": [0.5, 0.5, 0.5], "surv_base": [0.8, 0.8],
-                "K": 100, "r_fert": 0.1, "r_surv": 0.05, "delay_fert": [1, 1, 1], "delay_surv": [1, 1],
-                "migration_rates": [0.1, 0.1, 0.1], "env_effect": 0.2, "stoch_intensity": 0.1,
-                "use_age_structure": True, "use_density_dependence": True, "use_migration": True,
-                "use_noise": True, "use_delay": True, "use_env_effect": True,
-                "r": None, "m": None, "immigration": None, "delay": 0, "noise_std": None
-            }
             def wrapper(params, steps=300):
-                return simulate_unified_hybrid(params, steps).sum(axis=1)  # Общая численность
+                return simulate_unified_hybrid(params, steps).sum(axis=1)
         generate_heatmap(wrapper, param1, param2, param_ranges, fixed, steps)
 
 if model == "Гибридная модель":
