@@ -17,34 +17,6 @@ except ModuleNotFoundError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
-
-
-def generate_heatmap(model_func, param1, param2, param_ranges, fixed_params, steps=20):
-    p1_vals = np.linspace(*param_ranges[param1], steps)
-    p2_vals = np.linspace(*param_ranges[param2], steps)
-    
-    amplitudes = np.zeros((steps, steps))
-
-    for i, p1 in enumerate(p1_vals):
-        for j, p2 in enumerate(p2_vals):
-            params = fixed_params.copy()
-            params[param1] = p1
-            params[param2] = p2
-            pop = model_func(params, steps=300)
-            amplitudes[j, i] = amplitude_of_dynamics(pop[-100:])  # последние 100 шагов
-
-    fig, ax = plt.subplots(figsize=(8, 6))
-    sns.heatmap(amplitudes, xticklabels=np.round(p1_vals, 2),
-                yticklabels=np.round(p2_vals, 2), cmap="viridis", ax=ax)
-    ax.set_xlabel(param1)
-    ax.set_ylabel(param2)
-    ax.set_title("Амплитуда колебаний")
-    plt.xticks(rotation=45)
-    st.pyplot(fig)
-
-
-
 def simulate_hybrid(N0_vec: list, T: int,
                     fert_base: list, surv_base: list,
                     K: float, r_fert: float, r_surv: float,
