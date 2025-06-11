@@ -172,6 +172,29 @@ def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100)
         progress.progress((i + 1) / repeats)
     return np.array(runs)
 
+with st.expander("🔬 Анализ чувствительности (тепловая карта амплитуды)"):
+    model_type = st.selectbox("Выберите модель", ["Логистическая", "Рикера"])
+    param1 = st.selectbox("Параметр по оси X", ["r", "K"])
+    param2 = st.selectbox("Параметр по оси Y", ["r", "K"])
+    steps = st.slider("Разбиение сетки", 10, 50, 20)
+    run_heatmap = st.button("Построить тепловую карту")
+
+    if run_heatmap:
+        param_ranges = {
+            "r": (0.1, 3.0),
+            "K": (50, 500)
+        }
+        fixed = {"r": 1.5, "K": 300}
+
+        if model_type == "Логистическая":
+            def wrapper(params, steps=300):
+                return simulate_logistic_growth(N0=10, r=params["r"], K=params["K"], steps=steps)
+        elif model_type == "Рикера":
+            def wrapper(params, steps=300):
+                return simulate_ricker_model(N0=10, r=params["r"], K=params["K"], steps=steps)
+
+        generate_heatmap(wrapper, param1, param2, param_ranges, fixed, steps)
+
 def export_csv(data, filename,typem,str):
     if isinstance(data, np.ndarray):
         df = pd.DataFrame(data)
