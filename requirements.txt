@@ -5,3 +5,4 @@ g4f[all]
 SALib 
 scipy
 pdfkit
+seaborn
