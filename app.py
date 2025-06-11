@@ -397,7 +397,7 @@ else:
         N0_i = st.sidebar.number_input(f"N0 (начальная популяция) #{i+1}", min_value=0.0, value=10.0, key=f"N0_{i}")
         r_i = st.sidebar.number_input(f"r (темп роста) #{i+1}", min_value=0.0, value=0.1, key=f"r_{i}")
         K_i = st.sidebar.number_input(f"K (емкость) #{i+1}", min_value=1.0, value=100.0, key=f"K_{i}")
-        params = {"N0": N0_i, "r": r_i}, "K": K_i}
+        params = {"N0": N0_i, "r": r_i, "K": K_i}
         config_params.append(params)
 
 # Анализ чувствительности в боковой панели
