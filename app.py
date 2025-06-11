@@ -26,14 +26,18 @@ def generate_heatmap(model_func, param1, param2, param_ranges, fixed_params, ste
             params = fixed_params.copy()
             if param1.startswith("f_") or param1.startswith("s_"):
                 idx = int(param1.split("_")[1])
-                params["fertility"][idx] = p1 if param1.startswith("f_") else params["fertility"][idx]
-                params["survival"][idx] = p1 if param1.startswith("s_") else params["survival"][idx]
+                if param1.startswith("f_"):
+                    params["fertility"][idx] = p1
+                else:
+                    params["survival"][idx] = p1
             else:
                 params[param1] = p1
             if param2.startswith("f_") or param2.startswith("s_"):
                 idx = int(param2.split("_")[1])
-                params["fertility"][idx] = p2 if param2.startswith("f_") else params["fertility"][idx]
-                params["survival"][idx] = p2 if param2.startswith("s_") else params["survival"][idx]
+                if param2.startswith("f_"):
+                    params["fertility"][idx] = p2
+                else:
+                    params["survival"][idx] = p2
             else:
                 params[param2] = p2
             pop = model_func(params, steps=300)
@@ -59,7 +63,7 @@ def simulate_unified_hybrid(params, timesteps):
     delay_fert = params["delay_fert"]
     delay_surv = params["delay_surv"]
     migration_rates = params["migration_rates"]
-    env_effect = params["env_effect"]
+    env_effect = params["env_effect"] if params["env_effect"] is not None else 0.0
     stoch_intensity = params["stoch_intensity"]
     
     r = params["r"]
@@ -141,7 +145,7 @@ def simulate_unified_hybrid(params, timesteps):
 
         return np.array(history)
 
-def simulate_logistic(params, steps=300):
+def simulate_logistic(params, steps):
     N0 = params["N0"]
     r = params["r"]
     K = params["K"]
@@ -150,7 +154,7 @@ def simulate_logistic(params, steps=300):
         Ns.append(Ns[-1] + r * Ns[-1] * (1 - Ns[-1] / K))
     return np.array(Ns)
 
-def simulate_ricker(params, steps=300):
+def simulate_ricker(params, steps):
     N0 = params["N0"]
     r = params["r"]
     K = params["K"]
@@ -159,7 +163,7 @@ def simulate_ricker(params, steps=300):
         Ns.append(Ns[-1] * np.exp(r * (1 - Ns[-1] / K)))
     return np.array(Ns)
 
-def simulate_leslie(params, steps=300):
+def simulate_leslie(params, steps):
     N0_vec = params["N0_vec"]
     fertility = params["fertility"]
     survival = params["survival"]
@@ -175,18 +179,18 @@ def simulate_leslie(params, steps=300):
         history.append(N.copy())
     return np.array(history).sum(axis=1)
 
-def simulate_delay(params, steps=300):
+def simulate_delay(params, steps):
     N0 = params["N0"]
     r = params["r"]
     K = params["K"]
-    tau = params["tau"]
+    tau = int(params["tau"])
     Ns = [N0] * (tau + 1)
     for t in range(tau, steps + tau):
         N_next = Ns[t] * np.exp(r * (1 - Ns[t - tau] / K))
         Ns.append(N_next)
     return np.array(Ns[:steps + 1])
 
-def simulate_stochastic(params, steps=300):
+def simulate_stochastic(params, steps):
     base_sim = simulate_logistic if params["base_model"] == "Логистическая" else simulate_ricker
     N0 = params["N0"]
     r = params["r"]
@@ -196,7 +200,7 @@ def simulate_stochastic(params, steps=300):
     runs = []
     for _ in range(repeats):
         traj = base_sim({"N0": N0, "r": r, "K": K}, steps)
-        noise = np.random.normal(0, sigma, size=traj.shape)
+        noise = np.random.normal(0, sigma, size=len(traj))
         runs.append(np.clip(traj + noise, 0, None))
     return np.array(runs).mean(axis=0)
 
@@ -318,7 +322,7 @@ if model == "Гибридная модель":
             if use_env_effect and use_age_structure:
                 env_effect = st.slider("Сила влияния", -1.0, 1.0, 0.2, key=f"env_eff_{config_idx}")
             else:
-                env_effect = None
+                env_effect = 0.0
             
             params = {
                 "use_age_structure": use_age_structure,
@@ -329,7 +333,7 @@ if model == "Гибридная модель":
                 "K": K,
                 "r": r if not use_age_structure else None,
                 "r_fert": r_fert if use_age_structure else None,
-                "r_surv": r_surv if use_age_structure else None,
+                "r_surv": r_fert if use_age_structure else None,
                 "delay_fert": delay_fert if use_age_structure else None,
                 "delay_surv": delay_surv if use_age_structure else None,
                 "migration_rates": migration_rates if use_age_structure else None,
@@ -361,7 +365,7 @@ elif model == "Модель с задержкой":
     }
 
 elif model == "Модель Лесли":
-    n = st.sidebar.number_input("Число возрастных классes", min_value=2, max_value=10, value=3)
+    n = st.sidebar.number_input("Число возрастных классов", min_value=2, max_value=10, value=3)
     with st.sidebar.expander("Коэффициенты рождаемости (f_i)"):
         fertility = [st.number_input(f"f_{i}", min_value=0.0, value=0.5, key=f"f_{i}") for i in range(n)]
     with st.sidebar.expander("Вероятности выживания (s_i)"):
@@ -377,7 +381,6 @@ elif model == "Стохастическая симуляция":
         default=[0.1]
     )
     base_model = st.sidebar.selectbox("Основная модель:", ["Логистический рост", "Модель Рикера"])
-    base_sim = simulate_logistic if base_model == "Логистический рост" else simulate_ricker
     common = {
         'N0': st.sidebar.number_input("Начальная популяция N0", min_value=0.0, value=10.0),
         'r': st.sidebar.number_input("Темп роста r", min_value=0.0, value=0.1),
@@ -394,7 +397,8 @@ else:
         N0_i = st.sidebar.number_input(f"N0 (начальная популяция) #{i+1}", min_value=0.0, value=10.0, key=f"N0_{i}")
         r_i = st.sidebar.number_input(f"r (темп роста) #{i+1}", min_value=0.0, value=0.1, key=f"r_{i}")
         K_i = st.sidebar.number_input(f"K (емкость) #{i+1}", min_value=1.0, value=100.0, key=f"K_{i}")
-        config_params.append((N0_i, r_i, K_i))
+        params = {"N0": N0_i, "r": r_i}, "K": K_i}
+        config_params.append(params)
 
 # Анализ чувствительности в боковой панели
 with st.sidebar.expander("🔬 Анализ чувствительности (тепловая карта амплитуды)"):
@@ -402,7 +406,7 @@ with st.sidebar.expander("🔬 Анализ чувствительности (т
     
     if model_type == "Гибридная модель" and model == "Гибридная модель" and config_params:
         param_options = ["r_fert", "r_surv", "K", "stoch_intensity", "env_effect"]
-        base_params = config_params[0]
+        base_params = config_params[0].copy()
         default_ranges = {
             "r_fert": (max(0.0, base_params["r_fert"] * 0.5), base_params["r_fert"] * 1.5),
             "r_surv": (max(0.0, base_params["r_surv"] * 0.5), base_params["r_surv"] * 1.5),
@@ -421,14 +425,14 @@ with st.sidebar.expander("🔬 Анализ чувствительности (т
             "delay_fert": base_params.get("delay_fert", [1] * n_groups),
             "delay_surv": base_params.get("delay_surv", [1] * (n_groups - 1)),
             "migration_rates": base_params.get("migration_rates", [0.1] * n_groups),
-            "env_effect": base_params.get("env_effect", 0.2),
+            "env_effect": base_params.get("env_effect", 0.0),  # Исправлено
             "stoch_intensity": base_params.get("stoch_intensity", 0.1),
             "use_age_structure": base_params.get("use_age_structure", True),
             "use_density_dependence": True,
             "use_migration": True,
             "use_noise": True,
             "use_delay": True,
-            "use_env_effect": True,
+            "use_env_effect": base_params.get("use_env_effect", False),
             "r": None,
             "m": None,
             "immigration": None,
@@ -436,41 +440,57 @@ with st.sidebar.expander("🔬 Анализ чувствительности (т
             "noise_std": None
         }
         model_func = lambda params, steps=300: simulate_unified_hybrid(params, steps).sum(axis=1)
-    
-    elif model_type in ["Логистический рост", "Модель Рикера"] and model in ["Логистический рост", "Модель Рикера"] and config_params:
+
+    elif model_type == in ["Логистический рост", "Модель Рикера"] and model == in ["Логистический рост", "Модель Рикера"] and config_params:
         param_options = ["r", "K"]
-        base_params = {"N0": config_params[0][0], "r": config_params[0][1], "K": config_params[0][2]}
+        base_params = {"N0": config_params[0]["N0"], "r": config_params[0]["r"], "K": config_params[0]["K"]}
         default_ranges = {
             "r": (max(0.0, base_params["r"] * 0.5), base_params["r"] * 1.5),
             "K": (max(1.0, base_params["K"] * 0.5), base_params["K"] * 1.5)
         }
         fixed = base_params.copy()
         model_func = simulate_logistic if model_type == "Логистический рост" else simulate_ricker
-    
-    elif model_type in ["Логистический рост", "Модель Рикера", "Модель с задержкой", "Стохастическая симуляция"] and model in ["Модель с задержкой", "Стохастическая симуляция"]:
-        param_options = ["r", "K"] + (["tau"] if model_type == "Модель с задержкой" else ["sigma"])
-        base_params = common.copy() if 'common' in locals() else {"N0": 10.0, "r": 0.1, "K": 100.0, "tau": 1, "sigma": 0.1, "base_model": "Логистическая"}
+
+    elif model_type == in ["Модель с задержкой"] and model == "Модель с задержкой" and 'common' in locals():
+        param_options = ["r", "K", "tau"]
+        base_params = common.copy()
         default_ranges = {
             "r": (max(0.0, base_params["r"] * 0.5), base_params["r"] * 1.5),
             "K": (max(1.0, base_params["K"] * 0.5), base_params["K"] * 1.5),
-            "tau": (1, 10),
+            "tau": (max(1, int(base_params["tau"]) - 2), int(base_params["tau"]) + 2)
+        }
+        fixed = base_params.copy()
+        fixed["N0"] = base_params.get("N0", 10.0)
+        model_func = simulate_delay
+
+    elif model_type == in ["Stochastic simulationхастическая симуляция"] and model == in ["Stochastic simulation"] and 'common' in locals():
+        param_options = ["r", "K", "sigma"]
+        base_params = common.copy()
+        default_ranges = {
+            "r": (max(0.0, base_params["r"] * 0.5), base_params["r"] * 1.5),
+            "K": (max(1.0, base_params["K"] * 0.5), base_params["K"] * 1.5),
             "sigma": (0.0, max(0.1, base_params["sigma"] * 2.0))
         }
         fixed = base_params.copy()
-        model_func = simulate_delay if model_type == "Модель с задержкой" else simulate_stochastic
-    
-    elif model_type == "Модель Лесли" and model == "Модель Лесли":
+        fixed["N0"] = base_params.get("N0", 10.0)
+        model_func = simulate_stochastic
+
+    elif model_type == "Модель Leslie" and model == "Модель Лесли":
         param_options = [f"f_{i}" for i in range(len(fertility))] + [f"s_{i}" for i in range(len(survival))]
         base_params = {
             "N0_vec": N0_vec,
             "fertility": fertility,
             "survival": survival
         }
-        default_ranges = {f"f_{i}": (max(0.0, fertility[i] * 0.5), fertility[i] * 1.5) for i in range(len(fertility))}
-        default_ranges.update({f"s_{i}": (max(0.0, survival[i] * 0.5), min(1.0, survival[i] * 1.5)) for i in range(len(survival))})
+        default_ranges = {
+            f"f_{i}": (max(0.0, fertility[i] * 0.5), fertility[i] * 1.5) for i in range(len(fertility))
+        }
+        default_ranges.update(
+            {f"s_{i}": (max(0.0, survival[i] * 0.5), min(1.0, survival[i] * 1.5)) for i in range(len(survival))}
+        )
         fixed = base_params.copy()
         model_func = simulate_leslie
-    
+
     else:
         param_options = ["r", "K"]
         base_params = {"N0": 10.0, "r": 1.5, "K": 300.0}
@@ -482,24 +502,23 @@ with st.sidebar.expander("🔬 Анализ чувствительности (т
         model_func = simulate_logistic
 
     param1 = st.selectbox("Параметр по оси X", param_options)
-    param2 = st.selectbox("Параметр по оси Y", param_options, index=1 if len(param_options) > 1 else 0)
+    param2 = st.sidebar.selectbox("Параметр по оси Y", param_options, index=1 if len(param_options) > 1 else 0)
     
     st.markdown(f"**Диапазон для {param1}**")
-    param1_min = st.number_input(f"Мин. {param1}", value=default_ranges[param1][0], key=f"{param1}_min")
-    param1_max = st.number_input(f"Макс. {param1}", value=default_ranges[param1][1], key=f"{param1}_max")
+    param1_min = st.sidebar.number_input(f"Мин. {param1}", value=float(default_ranges[param1][0]), key=f"{param1}_min")
+    param1_max = st.sidebar.number_input(f"Макс. {param1}", value=float(default_ranges[param1][1]), key=f"{param1}_max")
     
     st.markdown(f"**Диапазон для {param2}**")
-    param2_min = st.number_input(f"Мин. {param2}", value=default_ranges[param2][0], key=f"{param2}_min")
-    param2_max = st.number_input(f"Макс. {param2}", value=default_ranges[param2][1], key=f"{param2}_max")
+    param2_min = st.sidebar.number_input(f"Мин. {param2}", value=float(default_ranges[param2][0]), key=f"{param2}_min")
+    param2_max = st.sidebar.number_input(f"Макс. {param2}", value=float(default_ranges[param2][1]), key=f"{param2}_max")
     
-    steps = st.slider("Разбиение сетки", 10, 50, 20)
+    steps = st.sidebar.slider("Разбиение сетки", min_value=10, max_value=50, value=20)
     
     param_ranges = {
         param1: (param1_min, param1_max),
         param2: (param2_min, param2_max)
-    }
     
-    run_heatmap = st.button("Построить тепловую карту")
+    run_heatmap = st.sidebar.button("Построить тепловую карту")
     if run_heatmap:
         if param1_min >= param1_max or param2_min >= param2_max:
             st.error("Минимальное значение должно быть меньше максимального!")
@@ -507,138 +526,137 @@ with st.sidebar.expander("🔬 Анализ чувствительности (т
             generate_heatmap(model_func, param1, param2, param_ranges, fixed, steps)
 
 if st.sidebar.button("Симулировать"):
-    with st.spinner("Симуляция..."):
+    with st.spinner("Рисуем..."):
         if model == "Гибридная модель":
             all_trajs = {}
             config_descriptions = []
             for idx, params in enumerate(config_params):
                 population = simulate_unified_hybrid(params, T)
                 if params["use_age_structure"]:
-                    df = pd.DataFrame(population, columns=[f"Возраст {i}" for i in range(len(params["N0_vec"]))])
-                    st.subheader(f"Конфигурация #{idx+1} - Динамика по возрастным классам")
+                    df = pd.DataFrame(population, columns=[f"p_{i}" for i in range(len(params["N0_vec"]))])
+                    st.subheader(f"Конфигурация #{idx+1} - Динамика роста по возрастным классам")
                     st.line_chart(df)
                     total_pop = df.sum(axis=1)
                     st.subheader(f"Конфигурация #{idx+1} - Общая численность")
                     st.line_chart(pd.DataFrame(total_pop, columns=["Общая численность"]))
                     all_trajs[f"Конфигурация #{idx+1}"] = total_pop
                     params_str = (f"Возрастная структура: {len(params['N0_vec'])} групп\n"
-                                f"K={params['K']}, r_fert={params['r_fert']}, r_surv={params['r_surv']}\n"
-                                f"Факторы: плотность={params['use_density_dependence']}, "
-                                f"миграция={params['use_migration']}, шум={params['use_noise']}, "
-                                f"задержка={params['use_delay']}, среда={params['use_env_effect']}")
+                    f"K={params['K']}, r_fert={params['r_fert']}}, r_surv={params['r_surv']}}\n"
+                    f"Факторы: плотность={params['use_density_dependence']}, "
+                    f"миграция={params['use_migration']}}, шум={params['use_noise']}, "
+                    f"задержка={params['use_delay']}}, среда={params['use_env_effect']}")
                 else:
                     df = pd.DataFrame(population, columns=["Популяция"])
-                    st.subheader(f"Конфигурация #{idx+1} - Динамика популяции")
+                    st.subheader(f"Конфигурация #{idx+1} - Динамика роста популяции")
                     st.line_chart(df)
                     all_trajs[f"Конфигурация #{idx+1}"] = population
-                    params_str = (f"r={params['r']}, K={params['K']}\n"
-                                f"Факторы: плотность={params['use_density_dependence']}, "
-                                f"миграция={params['use_migration']}, шум={params['use_noise']}, "
-                                f"задержка={params['use_delay']}")
+                    params_str = (f"r={params['r"]}, K={params["K"]}, "
+                    f"Факторы: плотность={params['use_density_dependence']}, "
+                    f"миграция={params['use_migration']}, шум={params['use_noise']}}, "
+                    f"задержка={params['use_delay']}")
                 config_descriptions.append(params_str)
-            export_csv(all_trajs, 'unified_hybrid', 'Гибридная модель',
-                      f"Конфигурации:\n{'\n'.join(config_descriptions)}\nДанные:\n{all_trajs}")
+            export_csv(all_trajs, 'unified_hybrid_data', 'Гибридная модель',
+                f"Конфигурации:\n{'\n'.join(config_descriptions)}}\nДанные:\n{all_trajs}")
 
         elif model == "Логистический рост":
             if configs_count == 1:
-                traj = simulate_logistic({"N0": config_params[0][0], "r": config_params[0][1], "K": config_params[0][2]}, T)
+                traj = simulate_logistic(config_params[0], T)
                 df = pd.DataFrame(traj, columns=["Популяция"])
                 st.subheader("Логистический рост")
                 st.line_chart(df)
-                export_csv(df, 'logistic_growth', 'Логистический рост',
-                           f"Одна траектория: N0={config_params[0][0]}, r={config_params[0][1]}, K={config_params[0][2]}\nДанные:\n{traj}")
+                export_csv(traj, 'logistic_growth', 'Логистическая модель',
+                    f"Одна траектория: N0={config_params[0]['N0']}, r={config_params[0]['r']}, K={config_params[0]['K']}\nДанные:\n{traj}")
             else:
                 all_trajs = {}
                 config_descriptions = []
-                for idx, (N0_i, r_i, K_i) in enumerate(config_params):
-                    traj = simulate_logistic({"N0": N0_i, "r": r_i, "K": K_i}, T)
-                    all_trajs[f"Конфигурация #{idx + 1} (r={r_i}, K={K_i})"] = traj
-                    config_descriptions.append(f"Конфигурация #{idx + 1}: N0={N0_i}, r={r_i}, K={K_i}")
+                for idx, config in enumerate(config_params):
+                    traj = simulate_logistic(config, T)
+                    all_trajs[f"Конфигурация #{idx + 1} (r={config['r']}, K={config['K']})"] = traj
+                    config_descriptions.append(f"Конфигурация #{idx + 1}: N0={config['N0']}, r={config['r']}, K={config['K']}")
                 df = pd.DataFrame(all_trajs)
-                st.subheader("Логистический рост - Несколько конфигураций")
+                st.subheader("Логистическая модель - несколько конфигураций")
                 st.line_chart(df)
-                export_csv(df, 'logistic_growth_multiple', 'Логистический рост',
-                           f"Множественные траектории:\n{'\n'.join(config_descriptions)}\nДанные:\n{all_trajs}")
+                export_csv(df, 'logistic_multi', 'Логистическая модель',
+                    f"Множественные траектории:\n{'\n'.join(config_descriptions)}\n{all_trajs}")
 
-        elif model == "Модель Рикера":
-            if configs_count == 1:
-                traj = simulate_ricker({"N0": config_params[0][0], "r": config_params[0][1], "K": config_params[0][2]}, T)
+        elif model == "Модель Рickera":
+            if configs_count == 1":
+                traj = simulate_ricker(config_params[0], T)
                 df = pd.DataFrame(traj, columns=["Популяция"])
                 st.subheader("Модель Рикера")
                 st.line_chart(df)
                 export_csv(df, 'ricker_model', 'Модель Рикера',
-                           f"Одна траектория: N0={config_params[0][0]}, r={config_params[0][1]}, K={config_params[0][2]}\nДанные:\n{traj}")
+                    f"Однажды траектория: N0={config_params[0]['N0']}, r={config_params[0]['r']}, K={config_params[0]['K']}\nДанные:\n{traj}")
             else:
                 all_trajs = {}
                 config_descriptions = []
-                for idx, (N0_i, r_i, K_i) in enumerate(config_params):
-                    traj = simulate_ricker({"N0": N0_i, "r": r_i, "K": K_i}, T)
-                    all_trajs[f"Конфигурация #{idx + 1} (r={r_i}, K={K_i})"] = traj
-                    config_descriptions.append(f"Конфигурация #{idx + 1}: N0={N0_i}, r={r_i}, K={K_i}")
+                for idx, config in enumerate(config_params):
+                    traj = simulate_ricker(config, T)
+                    all_trajs[f"Конфигурация #{idx + 1} (r={config['r']}, K={config['K']})"] = traj
+                    config_descriptions.append(f"Конфигурация #{idx + 1}: N0={config['N0']}, r={config['r']}, K={config['K']}")
                 df = pd.DataFrame(all_trajs)
-                st.subheader("Модель Рикера - Несколько конфигураций")
+                st.subheader("Модель Рикера - несколько моделей")
                 st.line_chart(df)
-                export_csv(df, 'ricker_model_multiple', 'Модель Рикера',
-                           f"Множественные траектории:\n{'\n'.join(config_descriptions)}\nДанные:\n{all_trajs}")
+                export_csv(df, 'ricker_multi', 'Модель Рикера',
+                    f"Множественные траектории:\n{'\n'.join(config_descriptions)}\n{all_trajs}")
 
         elif model == "Модель с задержкой":
             if not tau_values:
-                st.warning("Выберите хотя бы одно значение τ")
+                st.warning("Выберите хотя бы одно значение τ!")
             else:
                 all_trajs = {}
                 tau_descriptions = []
                 for tau_i in tau_values:
-                    traj = simulate_delay({"N0": common['N0'], "r": common['r'], "K": common['K'], "tau": tau_i}, T)
-                    all_trajs[f"τ = {tau_i}"] = traj
+                    params = common.copy()
+                    params['tau'] = tau_i
+                    traj = simulate_delay(params, T)
+                    all_trajs[f"τ={tau_i}"] = traj
                     tau_descriptions.append(
-                        f"Задержка τ={tau_i} при N0={common['N0']}, r={common['r']}, K={common['K']}")
+                        f"Задержка τ={tau_i} при N0={params['N0']}, r={params['r']}, K={params['K']}")
                 df = pd.DataFrame(all_trajs)
-                st.subheader("Модель с задержкой - Разные τ")
+                st.subheader("Модель с задержкой - разные τ")
                 st.line_chart(df)
-                export_csv(df, 'delay_model_multiple_tau', 'Модель с задержкой',
-                           f"Траектории с разными задержками:\n{'\n'.join(tau_descriptions)}\nДанные:\n{all_trajs}")
+                export_csv(df, 'delay_trajs', 'Модель с задержкой',
+                    f"Траектории с задержками:\n{'\n'.join(tau_descriptions)}\n{all_trajs}")
 
         elif model == "Модель Лесли":
-            history = simulate_leslie({"N0_vec": N0_vec, "fertility": fertility, "survival": survival}, T)
+            params = {"N0_vec": N0_vec, "fertility": fertility, "survival": survival}
+            history = simulate_leslie(params, T)
             df = pd.DataFrame(history, columns=[f"Возраст {i}" for i in range(n)])
             st.subheader("Модель Лесли")
             st.line_chart(df)
             L = np.zeros((n, n))
             L[0, :] = fertility
             for i in range(1, n):
-                L[i, i - 1] = survival[i - 1]
-            lambda_val = np.max(np.real(np.linalg.eigvals(L)))
-            st.write(f"Доминирующее собственное значение λ = {lambda_val:.3f}")
-            export_csv(df, 'leslie_matrix', 'Модель Лесли', history)
+                L[i, i-1] = survival[i-1]
+            lambda_val = np.max(np.abs(np.linalg.eigvals(L)))
+            st.write(f"Доминирующее значение: λ={lambda_val:.3f}")
+            export_csv(df, 'leslie_data', 'Модель Лесли', history)
 
         elif model == "Стохастическая симуляция":
             if not sigma_values:
-                st.warning("Выберите хотя бы одно значение σ")
+                st.warning("Выберите хотя бы одно значение σ!")
             else:
                 fig, ax = plt.subplots(figsize=(10, 6))
                 all_means = {}
                 sigma_descriptions = []
                 for sigma in sigma_values:
-                    results = simulate_stochastic(
-                        {"N0": common['N0'], "r": common['r'], "K": common['K'], "sigma": sigma, "base_model": base_model},
-                        T
-                    )
-                    for i in range(repeats):
-                        ax.plot(results[i], alpha=0.1, linewidth=0.8)
+                    params = common.copy()
+                    params['sigma'] = sigma
+                    results = simulate_stochastic(params, T)
+                    for i in range(results.shape[0]):
+                        ax.plot(results[i], alpha=0.1, linewidth=1)
                     mean_traj = results.mean(axis=0)
                     ax.plot(mean_traj, linewidth=2, label=f'σ={sigma}')
-                    all_means[f"σ={sigma}"] = mean_traj
-                    sigma_descriptions.append(f"σ={sigma} (N0={common['N0']}, r={common['r']}, K={common['K']})")
-                ax.set_title(f"Стохастическая симуляция ({repeats} траекторий на сигму)")
+                    all_means[f"sigma_{sigma}"] = mean_traj
+                    sigma_descriptions.append(f"σ={sigma} (N0={params['N0']}, r={params['r']}, K={params['K']})")
+                ax.set_title(f"Стохастическая модель ({repeats} траекторий)")
                 ax.legend()
                 st.pyplot(fig)
-                means_df = pd.DataFrame(all_means)
-                st.subheader("Средние траектории для разных уровней шума")
+                means_df = pd.DataFrame(all_means, index=range(1, T + 1))
+                st.markdown("### Средние траектории")
                 st.line_chart(means_df)
-                export_csv(means_df, 'stochastic_simulation_means', 'Стохастическая модель',
-                           f"Стохастические траектории с параметрами:\n{'\n'.join(sigma_descriptions)}\n"
-                           f"Средние значения:\n{all_means}\n"
-                           f"Базовые параметры: N0={common['N0']}, r={common['r']}, K={common['K']}")
+                export_csv(means_df, 'stochastic_means', 'Stoхастическая модель',
+                    f"Траектории:\n{'\n'.join(sigma_descriptions)}\nСредние:\n{all_means}")
 
-st.sidebar.markdown("---")
-st.sidebar.info("Разработано Лией Ахметовой")
+st.sidebar.caption("© Лия Ахметова")
