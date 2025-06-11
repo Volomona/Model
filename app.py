@@ -1,4 +1,3 @@
-```python
 import sys
 import io
 import logging
