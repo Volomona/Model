@@ -176,8 +176,19 @@ def simulate_stochastic(base_sim, *args, sigma: float = 0.1, repeats: int = 100)
 def export_csv(data, filename, typem, str_data):
     if isinstance(data, np.ndarray):
         df = pd.DataFrame(data)
+    elif isinstance(data, dict):
+        # Обработка словаря с траекториями
+        processed_data = {}
+        for key, value in data.items():
+            if value.ndim == 2:  # Для возрастной структуры
+                # Суммируем по возрастным группам для общей численности
+                processed_data[f"{key} (общая)"] = value.sum(axis=1)
+            else:  # Для одномерных данных
+                processed_data[key] = value
+        df = pd.DataFrame(processed_data)
     else:
         df = pd.DataFrame(data)
+    
     csv = df.to_csv(index=False).encode('utf-8')
     st.download_button(
         label="Скачать данные CSV",
@@ -426,6 +437,7 @@ if st.sidebar.button("Симулировать"):
                     total_pop = df.sum(axis=1)
                     st.subheader(f"Конфигурация #{idx+1} - Общая численность")
                     st.line_chart(pd.DataFrame(total_pop, columns=["Общая численность"]))
+                    all_trajs[f"Конфигурация #{idx+1}"] = total_pop  # Сохраняем общую численность
                     params_str = (f"Возрастная структура: {len(params['N0_vec'])} групп\n"
                                 f"K={params['K']}, r_fert={params['r_fert']}, r_surv={params['r_surv']}\n"
                                 f"Факторы: плотность={params['use_density_dependence']}, "
@@ -435,11 +447,11 @@ if st.sidebar.button("Симулировать"):
                     df = pd.DataFrame(population, columns=["Популяция"])
                     st.subheader(f"Конфигурация #{idx+1} - Динамика популяции")
                     st.line_chart(df)
+                    all_trajs[f"Конфигурация #{idx+1}"] = population
                     params_str = (f"r={params['r']}, K={params['K']}\n"
                                 f"Факторы: плотность={params['use_density_dependence']}, "
                                 f"миграция={params['use_migration']}, шум={params['use_noise']}, "
                                 f"задержка={params['use_delay']}")
-                all_trajs[f"Конфигурация #{idx+1}"] = population
                 config_descriptions.append(params_str)
             export_csv(all_trajs, 'unified_hybrid', 'Гибридная модель',
                       f"Конфигурации:\n{'\n'.join(config_descriptions)}\nДанные:\n{all_trajs}")
