@@ -532,4 +532,3 @@ if st.sidebar.button("Симулировать"):
 
 st.sidebar.markdown("---")
 st.sidebar.info("Разработано Лией Ахметовой")
-```
