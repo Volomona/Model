@@ -177,13 +177,11 @@ def export_csv(data, filename, typem, str_data):
     if isinstance(data, np.ndarray):
         df = pd.DataFrame(data)
     elif isinstance(data, dict):
-        # Обработка словаря с траекториями
         processed_data = {}
         for key, value in data.items():
-            if value.ndim == 2:  # Для возрастной структуры
-                # Суммируем по возрастным группам для общей численности
+            if value.ndim == 2:
                 processed_data[f"{key} (общая)"] = value.sum(axis=1)
-            else:  # Для одномерных данных
+            else:
                 processed_data[key] = value
         df = pd.DataFrame(processed_data)
     else:
@@ -226,61 +224,6 @@ st.sidebar.caption(model_info[model])
 
 st.sidebar.markdown("### Общие параметры")
 T = st.sidebar.number_input("Шаги времени (T)", min_value=1, max_value=500, value=100)
-
-with st.expander("🔬 Анализ чувствительности (тепловая карта амплитуды)"):
-    model_type = st.selectbox("Выберите модель", ["Логистическая", "Рикера", "Гибридная"])
-    if model_type == "Гибридная":
-        param_options = ["r_fert", "r_surv", "K", "stoch_intensity", "env_effect"]
-    else:
-        param_options = ["r", "K"]
-    param1 = st.selectbox("Параметр по оси X", param_options)
-    param2 = st.selectbox("Параметр по оси Y", param_options, index=1 if len(param_options) > 1 else 0)
-    steps = st.slider("Разбиение сетки", 10, 50, 20)
-    
-    if model_type == "Гибридная":
-        st.markdown("**Настройка фиксированных параметров**")
-        n_groups = st.number_input("Число возрастных групп", min_value=2, max_value=5, value=3, key="heatmap_n_groups")
-        N0_vec = [10.0] * n_groups
-        fert_base = [0.5] * n_groups
-        surv_base = [0.8] * (n_groups - 1)
-        delay_fert = [1] * n_groups
-        delay_surv = [1] * (n_groups - 1)
-        migration_rates = [0.1] * n_groups
-        param_ranges = {
-            "r_fert": (0.01, 0.5),
-            "r_surv": (0.01, 0.5),
-            "K": (50, 500),
-            "stoch_intensity": (0.0, 1.0),
-            "env_effect": (-1.0, 1.0)
-        }
-        fixed = {
-            "N0_vec": N0_vec, "fert_base": fert_base, "surv_base": surv_base,
-            "K": 100.0, "r_fert": 0.1, "r_surv": 0.05, "delay_fert": delay_fert,
-            "delay_surv": delay_surv, "migration_rates": migration_rates,
-            "env_effect": 0.2, "stoch_intensity": 0.1,
-            "use_age_structure": True, "use_density_dependence": True, "use_migration": True,
-            "use_noise": True, "use_delay": True, "use_env_effect": True,
-            "r": None, "m": None, "immigration": None, "delay": 0, "noise_std": None
-        }
-    else:
-        param_ranges = {
-            "r": (0.1, 3.0),
-            "K": (50, 500)
-        }
-        fixed = {"r": 1.5, "K": 300, "N0": 10}
-    
-    run_heatmap = st.button("Построить тепловую карту")
-    if run_heatmap:
-        if model_type == "Логистическая":
-            def wrapper(params, steps=300):
-                return simulate_logistic(params["N0"], params["r"], params["K"], steps)
-        elif model_type == "Рикера":
-            def wrapper(params, steps=300):
-                return simulate_ricker(params["N0"], params["r"], params["K"], steps)
-        elif model_type == "Гибридная":
-            def wrapper(params, steps=300):
-                return simulate_unified_hybrid(params, steps).sum(axis=1)
-        generate_heatmap(wrapper, param1, param2, param_ranges, fixed, steps)
 
 if model == "Гибридная модель":
     config_params = []
@@ -423,6 +366,103 @@ else:
         K_i = st.sidebar.number_input(f"K (емкость) #{i+1}", min_value=1.0, value=100.0)
         config_params.append((N0_i, r_i, K_i))
 
+# Анализ чувствительности в боковой панели
+with st.sidebar.expander("🔬 Анализ чувствительности (тепловая карта амплитуды)"):
+    model_type = st.selectbox("Выберите модель для анализа", ["Логистическая", "Рикера", "Гибридная"])
+    
+    if model_type == "Гибридная" and config_params and model == "Гибридная модель":
+        param_options = ["r_fert", "r_surv", "K", "stoch_intensity", "env_effect"]
+        # Синхронизация с параметрами первой конфигурации
+        base_params = config_params[0]
+        default_ranges = {
+            "r_fert": (max(0.0, base_params["r_fert"] * 0.5), base_params["r_fert"] * 1.5),
+            "r_surv": (max(0.0, base_params["r_surv"] * 0.5), base_params["r_surv"] * 1.5),
+            "K": (max(1.0, base_params["K"] * 0.5), base_params["K"] * 1.5),
+            "stoch_intensity": (0.0, max(0.1, base_params["stoch_intensity"] * 2.0)),
+            "env_effect": (-1.0, 1.0)
+        }
+    elif model_type in ["Логистическая", "Рикера"] and config_params and model in ["Логистический рост", "Модель Рикера"]:
+        param_options = ["r", "K"]
+        base_params = config_params[0]
+        default_ranges = {
+            "r": (max(0.0, base_params[1] * 0.5), base_params[1] * 1.5),
+            "K": (max(1.0, base_params[2] * 0.5), base_params[2] * 1.5)
+        }
+    elif model_type in ["Логистическая", "Рикера"] and common and model in ["Модель с задержкой", "Стохастическая симуляция"]:
+        param_options = ["r", "K"]
+        base_params = common
+        default_ranges = {
+            "r": (max(0.0, base_params["r"] * 0.5), base_params["r"] * 1.5),
+            "K": (max(1.0, base_params["K"] * 0.5), base_params["K"] * 1.5)
+        }
+    else:
+        param_options = ["r", "K"]
+        default_ranges = {
+            "r": (0.1, 3.0),
+            "K": (50, 500)
+        }
+        base_params = {"r": 1.5, "K": 300}
+
+    param1 = st.selectbox("Параметр по оси X", param_options)
+    param2 = st.selectbox("Параметр по оси Y", param_options, index=1 if len(param_options) > 1 else 0)
+    
+    st.markdown(f"**Диапазон для {param1}**")
+    param1_min = st.number_input(f"Мин. {param1}", value=default_ranges[param1][0], key=f"{param1}_min")
+    param1_max = st.number_input(f"Макс. {param1}", value=default_ranges[param1][1], key=f"{param1}_max")
+    
+    st.markdown(f"**Диапазон для {param2}**")
+    param2_min = st.number_input(f"Мин. {param2}", value=default_ranges[param2][0], key=f"{param2}_min")
+    param2_max = st.number_input(f"Макс. {param2}", value=default_ranges[param2][1], key=f"{param2}_max")
+    
+    steps = st.slider("Разбиение сетки", 10, 50, 20)
+    
+    param_ranges = {
+        param1: (param1_min, param1_max),
+        param2: (param2_min, param2_max)
+    }
+    
+    if model_type == "Гибридная":
+        n_groups = 3  # По умолчанию, можно синхронизировать с n из config_params
+        N0_vec = [10.0] * n_groups
+        fert_base = [0.5] * n_groups
+        surv_base = [0.8] * (n_groups - 1)
+        delay_fert = [1] * n_groups
+        delay_surv = [1] * (n_groups - 1)
+        migration_rates = [0.1] * n_groups
+        fixed = {
+            "N0_vec": N0_vec, "fert_base": fert_base, "surv_base": surv_base,
+            "K": base_params.get("K", 100.0), "r_fert": base_params.get("r_fert", 0.1),
+            "r_surv": base_params.get("r_surv", 0.05), "delay_fert": delay_fert,
+            "delay_surv": delay_surv, "migration_rates": migration_rates,
+            "env_effect": base_params.get("env_effect", 0.2),
+            "stoch_intensity": base_params.get("stoch_intensity", 0.1),
+            "use_age_structure": True, "use_density_dependence": True, "use_migration": True,
+            "use_noise": True, "use_delay": True, "use_env_effect": True,
+            "r": None, "m": None, "immigration": None, "delay": 0, "noise_std": None
+        }
+    else:
+        fixed = {
+            "r": base_params.get("r", 1.5) if isinstance(base_params, dict) else base_params[1],
+            "K": base_params.get("K", 300) if isinstance(base_params, dict) else base_params[2],
+            "N0": 10
+        }
+    
+    run_heatmap = st.button("Построить тепловую карту")
+    if run_heatmap:
+        if param1_min >= param1_max or param2_min >= param2_max:
+            st.error("Минимальное значение должно быть меньше максимального!")
+        else:
+            if model_type == "Логистическая":
+                def wrapper(params, steps=300):
+                    return simulate_logistic(params["N0"], params["r"], params["K"], steps)
+            elif model_type == "Рикера":
+                def wrapper(params, steps=300):
+                    return simulate_ricker(params["N0"], params["r"], params["K"], steps)
+            elif model_type == "Гибридная":
+                def wrapper(params, steps=300):
+                    return simulate_unified_hybrid(params, steps).sum(axis=1)
+            generate_heatmap(wrapper, param1, param2, param_ranges, fixed, steps)
+
 if st.sidebar.button("Симулировать"):
     with st.spinner("Симуляция..."):
         if model == "Гибридная модель":
@@ -437,7 +477,7 @@ if st.sidebar.button("Симулировать"):
                     total_pop = df.sum(axis=1)
                     st.subheader(f"Конфигурация #{idx+1} - Общая численность")
                     st.line_chart(pd.DataFrame(total_pop, columns=["Общая численность"]))
-                    all_trajs[f"Конфигурация #{idx+1}"] = total_pop  # Сохраняем общую численность
+                    all_trajs[f"Конфигурация #{idx+1}"] = total_pop
                     params_str = (f"Возрастная структура: {len(params['N0_vec'])} групп\n"
                                 f"K={params['K']}, r_fert={params['r_fert']}, r_surv={params['r_surv']}\n"
                                 f"Факторы: плотность={params['use_density_dependence']}, "
