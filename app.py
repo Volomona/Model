@@ -650,21 +650,53 @@ def plot_3d_surface_interactive(results_array, param_values, future_steps, param
     )
     st.plotly_chart(fig, use_container_width=True)
 
-def bifurcation_diagram(model_func, param_name, param_range, steps, T_sim=100):
-    """Построение бифуркационной диаграммы"""
-    param_values = np.linspace(*param_range, steps)
+def bifurcation_diagram_hybrid(param_name, param_range, steps, T_sim=100, current_params=None):
+    """Построение бифуркационной диаграммы для гибридной модели"""
+    param_values = np.linspace(param_range[0], param_range[1], steps)
     results = []
-    for val in param_values:
-        params = {
-            'N0': 10, 'r': val if param_name == 'r' else 0.5,
-            'K': 100 if param_name != 'K' else val,
-            'T': T_sim
+    
+    # Получаем текущие параметры гибридной модели
+    if current_params is None:
+        current_params = {
+            "N0_vec": N0_vec,
+            "T": T_sim,
+            "fert_base": fert_base,
+            "surv_base": surv_base,
+            "K": K,
+            "r": r,
+            "r_surv": r_surv,
+            "delay_fert": delay_fert,
+            "delay_surv": delay_surv,
+            "migration_rates": migration_rates,
+            "env_effect": env_effect,
+            "stoch_intensity": stoch_intensity,
+            "features": model_features
         }
-        traj = model_func(**params)
-        for x in traj[-20:]:  # последние 20 точек
+    
+    for val in param_values:
+        sim_params = current_params.copy()
+        
+        # Изменяем нужный параметр
+        if param_name in ["r", "r_surv", "K", "env_effect", "stoch_intensity"]:
+            sim_params[param_name] = val
+        elif param_name == "migration_rates":
+            sim_params[param_name] = [val] * len(N0_vec)
+        elif param_name == "delay_fert":
+            sim_params[param_name] = [int(val)] * len(N0_vec)
+        elif param_name == "delay_surv":
+            sim_params[param_name] = [int(val)] * (len(N0_vec) - 1)
+        
+        # Запускаем симуляцию
+        trajectory = simulate_hybrid(**sim_params)
+        
+        # Суммируем по всем возрастным группам для каждого шага времени
+        total_pop = trajectory[-20:].sum(axis=1)  # последние 20 точек, сумма по всем группам
+        
+        for x in total_pop:
             results.append((val, x))
+    
     df = pd.DataFrame(results, columns=[param_name, 'N'])
-    fig = px.scatter(df, x=param_name, y='N', title="Бифуркационная диаграмма", opacity=0.3)
+    fig = px.scatter(df, x=param_name, y='N', title=f"Бифуркационная диаграмма ({param_name})", opacity=0.3)
     st.plotly_chart(fig)
 
 def export_csv(data, filename, typem, str):
@@ -1187,7 +1219,8 @@ if st.sidebar.button("Симулировать"):
 
             # Фазовый портрет и бифуркационная диаграмма
             plot_phase_portrait(history[:, 0])  # первая возрастная группа
-            bifurcation_diagram(simulate_ricker, 'r', (0.1, 3.0), 100)
+            bifurcation_diagram_hybrid('r', (0.1, 3.0), 100, T_sim=T)
+
             
             # Вероятность вымирания
             extinction_prob = np.mean([np.any(run < 1e-3) for run in history])
