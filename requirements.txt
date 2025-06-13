@@ -4,3 +4,5 @@ pandas
 matplotlib
 seaborn
 g4f
+scipy
+plotly
