@@ -623,11 +623,11 @@ def generate_stochastic_heatmap(
 
 def plot_phase_portrait(signal, delay=1):
     """Построение фазового портрета временного ряда"""
-    x = signal[delay:]
-    y = signal[:-delay]
+    x = signal[:-delay]
+    y = signal[delay:] 
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=x, y=y, mode='markers', marker=dict(size=3)))
-    fig.update_layout(title="Фазовый портрет", xaxis_title="N(t)", yaxis_title=f"N(t - {delay})")
+    fig.update_layout(title="Фазовый портрет", xaxis_title="N(t - {delay})", yaxis_title=f"N(t)")
     st.plotly_chart(fig)
 
 def plot_3d_surface_interactive(results_array, param_values, future_steps, param_to_vary):
