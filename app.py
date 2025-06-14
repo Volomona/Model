@@ -650,54 +650,155 @@ def plot_3d_surface_interactive(results_array, param_values, future_steps, param
     )
     st.plotly_chart(fig, use_container_width=True)
 
-def bifurcation_diagram_hybrid(param_name, param_range, steps, T_sim=100, current_params=None):
-    """Построение бифуркационной диаграммы для гибридной модели"""
+def bifurcation_diagram(model_func, param_name, param_range, steps, T_sim=100, discard=50, current_params=None):
+    """Построение бифуркационной диаграммы для любой модели"""
     param_values = np.linspace(param_range[0], param_range[1], steps)
     results = []
     
-    # Получаем текущие параметры гибридной модели
-    if current_params is None:
-        current_params = {
-            "N0_vec": N0_vec,
-            "T": T_sim,
-            "fert_base": fert_base,
-            "surv_base": surv_base,
-            "K": K,
-            "r": r,
-            "r_surv": r_surv,
-            "delay_fert": delay_fert,
-            "delay_surv": delay_surv,
-            "migration_rates": migration_rates,
-            "env_effect": env_effect,
-            "stoch_intensity": stoch_intensity,
-            "features": model_features
-        }
+    progress_bar = st.progress(0)
+    status_text = st.empty()
     
-    for val in param_values:
+    # Преобразуем переведенное имя параметра в техническое
+    tech_param_name = REVERSE_TRANSLATIONS.get(param_name, param_name)
+    
+    for i, val in enumerate(param_values):
+        # Обновляем прогресс
+        progress = (i + 1) / steps
+        progress_bar.progress(progress)
+        status_text.text(f"Прогресс: {progress:.1%} ({param_name} = {val:.2f})")
+        
         sim_params = current_params.copy()
         
-        # Изменяем нужный параметр
-        if param_name in ["r", "r_surv", "K", "env_effect", "stoch_intensity"]:
-            sim_params[param_name] = val
-        elif param_name == "migration_rates":
-            sim_params[param_name] = [val] * len(N0_vec)
-        elif param_name == "delay_fert":
-            sim_params[param_name] = [int(val)] * len(N0_vec)
-        elif param_name == "delay_surv":
-            sim_params[param_name] = [int(val)] * (len(N0_vec) - 1)
+        # Изменяем нужный параметр, используя техническое имя
+        if tech_param_name == "tau":
+            sim_params[tech_param_name] = int(val)
+        elif tech_param_name == "migration_rates":
+            sim_params[tech_param_name] = [float(val)] * len(sim_params.get("N0_vec", [10]))
+        elif tech_param_name == "delay_fert":
+            sim_params[tech_param_name] = [int(val)] * len(sim_params.get("N0_vec", [10]))
+        elif tech_param_name == "delay_surv":
+            sim_params[tech_param_name] = [int(val)] * (len(sim_params.get("N0_vec", [10])) - 1)
+        elif tech_param_name == "fertility":
+            sim_params[tech_param_name] = [float(val)] * len(sim_params.get("N0_vec", [10]))
+        elif tech_param_name == "survival":
+            sim_params[tech_param_name] = [float(val)] * (len(sim_params.get("N0_vec", [10])) - 1)
+        else:
+            sim_params[tech_param_name] = val
         
         # Запускаем симуляцию
-        trajectory = simulate_hybrid(**sim_params)
-        
-        # Суммируем по всем возрастным группам для каждого шага времени
-        total_pop = trajectory[-20:].sum(axis=1)  # последние 20 точек, сумма по всем группам
-        
-        for x in total_pop:
-            results.append((val, x))
+        try:
+            trajectory = model_func(**sim_params)
+            
+            # Если результат многомерный (например, для модели Лесли), суммируем по всем группам
+            if len(trajectory.shape) > 1 and trajectory.shape[1] > 1:
+                trajectory = np.sum(trajectory, axis=1)
+            
+            # Берем только установившийся режим
+            steady_state = trajectory[discard:]
+            
+            # Добавляем точки в результат
+            for x in steady_state:
+                results.append((val, x))
+        except Exception as e:
+            st.error(f"Ошибка при параметре {param_name} = {val}: {str(e)}")
+            continue
     
+    # Создаем DataFrame и визуализируем
     df = pd.DataFrame(results, columns=[param_name, 'N'])
-    fig = px.scatter(df, x=param_name, y='N', title=f"Бифуркационная диаграмма ({param_name})", opacity=0.3)
-    st.plotly_chart(fig)
+    fig = px.scatter(df, x=param_name, y='N', 
+                     title=f"Бифуркационная диаграмма ({param_name})", 
+                     opacity=0.3,
+                     labels={param_name: param_name, 
+                             'N': 'Численность популяции'})
+    
+    fig.update_layout(
+        xaxis_title=param_name,
+        yaxis_title="Численность популяции",
+        height=600,
+        width=800
+    )
+    
+    return fig, df
+
+def bifurcation_diagram_stochastic(base_sim, param_name, param_range, steps, T_sim=100, 
+                                  discard=50, repeats=10, sigma=0.1, current_params=None):
+    """Построение бифуркационной диаграммы для стохастической модели"""
+    param_values = np.linspace(param_range[0], param_range[1], steps)
+    results = []
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    # Преобразуем переведенное имя параметра в техническое
+    tech_param_name = REVERSE_TRANSLATIONS.get(param_name, param_name)
+    
+    for i, val in enumerate(param_values):
+        # Обновляем прогресс
+        progress = (i + 1) / steps
+        progress_bar.progress(progress)
+        status_text.text(f"Прогресс: {progress:.1%} ({param_name} = {val:.2f})")
+        
+        # Определяем, какой параметр меняем (используя техническое имя)
+        if tech_param_name == "sigma":
+            sigma_val = val
+            r_val = current_params.get("r", 0.1)
+            K_val = current_params.get("K", 100.0)
+            N0_val = current_params.get("N0", 10.0)
+        elif tech_param_name == "r":
+            sigma_val = current_params.get("sigma", 0.1)
+            r_val = val
+            K_val = current_params.get("K", 100.0)
+            N0_val = current_params.get("N0", 10.0)
+        elif tech_param_name == "K":
+            sigma_val = current_params.get("sigma", 0.1)
+            r_val = current_params.get("r", 0.1)
+            K_val = val
+            N0_val = current_params.get("N0", 10.0)
+        elif tech_param_name == "N0":
+            sigma_val = current_params.get("sigma", 0.1)
+            r_val = current_params.get("r", 0.1)
+            K_val = current_params.get("K", 100.0)
+            N0_val = val
+        else:
+            # Значения по умолчанию
+            sigma_val = current_params.get("sigma", 0.1)
+            r_val = current_params.get("r", 0.1)
+            K_val = current_params.get("K", 100.0)
+            N0_val = current_params.get("N0", 10.0)
+        
+        # Запускаем симуляцию с позиционными аргументами
+        try:
+            trajectories = simulate_stochastic(
+                base_sim, N0_val, r_val, K_val, T_sim,
+                sigma=sigma_val, repeats=repeats
+            )
+            
+            # Для каждой траектории берем только установившийся режим
+            for traj in trajectories:
+                steady_state = traj[discard:]
+                # Добавляем точки в результат (берем каждую 5-ю точку для уменьшения объема)
+                for x in steady_state[::5]:
+                    results.append((val, x))
+        except Exception as e:
+            st.error(f"Ошибка при параметре {param_name} = {val}: {str(e)}")
+            continue
+    
+    # Создаем DataFrame и визуализируем
+    df = pd.DataFrame(results, columns=[param_name, 'N'])
+    fig = px.scatter(df, x=param_name, y='N', 
+                     title=f"Бифуркационная диаграмма ({param_name})", 
+                     opacity=0.3,
+                     labels={param_name: param_name, 
+                             'N': 'Численность популяции'})
+    
+    fig.update_layout(
+        xaxis_title=param_name,
+        yaxis_title="Численность популяции",
+        height=600,
+        width=800
+    )
+    
+    return fig, df
 
 def export_csv(data, filename, typem, str):
     """Экспорт данных в CSV с аналитикой"""
